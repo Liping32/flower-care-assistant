@@ -1,0 +1,2343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>花卉养殖助手</title>
+<style>
+:root {
+  --primary: #2e7d32;
+  --primary-light: #4caf50;
+  --primary-dark: #1b5e20;
+  --accent: #66bb6a;
+  --bg: #f1f8e9;
+  --card: #ffffff;
+  --text: #2e3b2e;
+  --text-light: #6b7c6b;
+  --border: #c8e6c9;
+  --danger: #e53935;
+  --warning: #f9a825;
+  --info: #1976d2;
+  --radius: 12px;
+  --shadow: 0 2px 12px rgba(46,125,50,0.12);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  max-width: 480px;
+  margin: 0 auto;
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* Header */
+.header {
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  color: white;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.header h1 { font-size: 20px; font-weight: 600; display:flex; align-items:center; gap:8px; }
+.header-btns { display:flex; gap:8px; }
+.header-btn {
+  background: rgba(255,255,255,0.2);
+  border: none;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.header-btn:hover { background: rgba(255,255,255,0.35); }
+
+/* Location Bar */
+.location-bar {
+  background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+  padding: 8px 20px;
+  font-size: 13px;
+  color: var(--primary-dark);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.location-bar .season-tag {
+  background: var(--primary);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  margin-left: auto;
+}
+
+/* Tab Navigation */
+.tab-nav {
+  display: flex;
+  background: var(--card);
+  border-bottom: 2px solid var(--border);
+  position: sticky;
+  top: 56px;
+  z-index: 99;
+}
+.tab-btn {
+  flex: 1;
+  padding: 12px 8px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-light);
+  border: none;
+  background: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+.tab-btn.active {
+  color: var(--primary);
+  font-weight: 600;
+}
+.tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 20%;
+  right: 20%;
+  height: 3px;
+  background: var(--primary);
+  border-radius: 3px 3px 0 0;
+}
+.tab-btn .badge {
+  background: var(--danger);
+  color: white;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  margin-left: 4px;
+  vertical-align: top;
+}
+
+/* Tab Content */
+.tab-content { display: none; padding: 16px; padding-bottom: 80px; }
+.tab-content.active { display: block; }
+
+/* Season Filter */
+.season-filter {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.season-btn {
+  padding: 6px 16px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border);
+  background: var(--card);
+  color: var(--text-light);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+.season-btn.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+/* Flower Card */
+.flower-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.flower-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+  position: relative;
+}
+.flower-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(46,125,50,0.2); }
+.flower-card.dragging { opacity: 0.4; transform: scale(0.95); }
+.flower-card.drag-over { border: 2px dashed var(--primary-light); transform: translateY(-2px); }
+.flower-card .drag-handle {
+  position: absolute; top: 4px; right: 4px; width: 24px; height: 24px;
+  background: rgba(255,255,255,0.85); border-radius: 50%; display: flex;
+  align-items: center; justify-content: center; font-size: 14px; cursor: grab;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15); z-index: 2; color: var(--text-light);
+  transition: background 0.2s;
+}
+.flower-card .drag-handle:active { cursor: grabbing; background: var(--border); }
+.flower-card .flower-img {
+  width: 100%;
+  height: 130px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+}
+.flower-card .flower-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s;
+}
+.flower-card:hover .flower-img img { transform: scale(1.05); }
+.flower-card .flower-img .emoji-fallback {
+  font-size: 56px;
+  position: absolute;
+}
+.flower-card .flower-info { padding: 10px 12px; }
+.flower-card .flower-name { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.flower-card .flower-desc { font-size: 12px; color: var(--text-light); line-height: 1.5; }
+.flower-card .add-btn {
+  margin: 0 12px 10px;
+  padding: 5px 0;
+  width: calc(100% - 24px);
+  background: var(--primary-light);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.flower-card .add-btn:hover { background: var(--primary); }
+.flower-card .add-btn.added { background: #bdbdbd; cursor: default; }
+
+/* Knowledge Section */
+.knowledge-section {
+  margin-top: 20px;
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.knowledge-header {
+  padding: 12px 16px;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: white;
+  font-weight: 600;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.knowledge-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.knowledge-item:hover { background: #f1f8e9; }
+.knowledge-item:last-child { border-bottom: none; }
+.knowledge-item .ki-title {
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.knowledge-item .ki-desc { font-size: 12px; color: var(--text-light); }
+.knowledge-item .ki-arrow { margin-left: auto; color: var(--text-light); font-size: 12px; }
+
+/* Modal / Detail */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 200;
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+}
+.modal-overlay.show { display: flex; }
+.modal-content {
+  background: var(--card);
+  border-radius: 16px 16px 0 0;
+  width: 100%;
+  max-width: 480px;
+  max-height: 85vh;
+  overflow-y: auto;
+  animation: slideUp 0.3s ease;
+}
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.modal-header {
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  z-index: 1;
+}
+.modal-header h2 { font-size: 17px; }
+.modal-close {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: #f5f5f5;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-body { padding: 16px 20px 24px; }
+
+/* Detail sections */
+.detail-section {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #f9fbe7;
+  border-radius: 8px;
+  border-left: 3px solid var(--primary-light);
+}
+.detail-section h3 {
+  font-size: 14px;
+  color: var(--primary-dark);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.detail-section p, .detail-section li {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text);
+}
+.detail-section ul { padding-left: 18px; }
+
+/* Season tabs inside detail */
+.detail-season-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.detail-season-tab {
+  padding: 4px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: white;
+  font-size: 12px;
+  cursor: pointer;
+}
+.detail-season-tab.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+/* My Flower List */
+.my-flower-item {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.my-flower-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  gap: 12px;
+  cursor: pointer;
+}
+.my-flower-emoji { font-size: 36px; width:48px; height:48px; border-radius:8px; overflow:hidden; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.my-flower-emoji img { width:100%; height:100%; object-fit:cover; }
+.my-flower-meta { flex: 1; }
+.my-flower-name { font-size: 15px; font-weight: 600; }
+.my-flower-status { font-size: 12px; color: var(--text-light); margin-top: 2px; }
+.my-flower-status-sub { font-size: 11px; color: var(--text-light); margin-top: 1px; opacity: 0.8; }
+.climate-banner { background: linear-gradient(135deg, #e8f5e9, #c8e6c9); border-radius: 10px; padding: 8px 14px; font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5; }
+.climate-adjusted { font-size: 10px; margin-left: 2px; cursor: help; opacity: 0.7; }
+.my-flower-actions { display: flex; gap: 6px; }
+.my-flower-actions button {
+  padding: 4px 10px;
+  border-radius: 14px;
+  border: none;
+  font-size: 11px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.my-flower-actions button:hover { opacity: 0.8; }
+.btn-water { background: #e3f2fd; color: #1565c0; }
+.btn-fertilize { background: #fff3e0; color: #e65100; }
+.btn-remove { background: #ffebee; color: #c62828; }
+
+/* Reminder Cards */
+.reminder-card {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.reminder-card.overdue { background: #fff3e0; }
+.reminder-card.today { background: #e8f5e9; }
+.reminder-icon { font-size: 18px; }
+.reminder-text { flex: 1; }
+.reminder-text .rt-label { font-weight: 500; }
+.reminder-text .rt-days { font-size: 11px; color: var(--text-light); }
+.reminder-action {
+  padding: 4px 10px;
+  border-radius: 14px;
+  border: none;
+  font-size: 11px;
+  cursor: pointer;
+  background: var(--primary-light);
+  color: white;
+}
+
+/* Auth Page */
+.auth-page {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg);
+  z-index: 300;
+  max-width: 480px;
+  margin: 0 auto;
+}
+.auth-page.show { display: flex; flex-direction: column; }
+.auth-header {
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  color: white;
+  padding: 40px 24px 30px;
+  text-align: center;
+}
+.auth-header h1 { font-size: 26px; margin-bottom: 8px; display:flex; align-items:center; justify-content:center; gap:10px; }
+.auth-header p { font-size: 14px; opacity: 0.9; }
+.auth-form {
+  flex: 1;
+  padding: 30px 24px;
+}
+.auth-form h2 { font-size: 20px; margin-bottom: 20px; color: var(--primary-dark); }
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--text-light); }
+.form-group input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  font-size: 15px;
+  transition: border-color 0.2s;
+  background: white;
+}
+.form-group input:focus { outline: none; border-color: var(--primary); }
+.auth-submit {
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+  transition: opacity 0.2s;
+}
+.auth-submit:hover { opacity: 0.9; }
+.auth-switch {
+  text-align: center;
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--text-light);
+}
+.auth-switch a { color: var(--primary); cursor: pointer; text-decoration: none; }
+.auth-error {
+  background: #ffebee;
+  color: #c62828;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 12px;
+  display: none;
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-light);
+}
+.empty-state .empty-icon { font-size: 48px; margin-bottom: 12px; }
+.empty-state p { font-size: 14px; margin-bottom: 16px; }
+.empty-state button {
+  padding: 10px 24px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 20px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* Search Bar */
+.search-bar {
+  display: flex;
+  align-items: center;
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: 20px;
+  padding: 8px 14px;
+  margin-bottom: 14px;
+  gap: 8px;
+}
+.search-bar input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  background: none;
+}
+.search-bar .search-icon { color: var(--text-light); }
+
+/* Notification toast */
+.toast {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--primary-dark);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 20px;
+  font-size: 13px;
+  z-index: 500;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+.toast.show { opacity: 1; }
+
+/* Knowledge detail page */
+.knowledge-detail-page {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg);
+  z-index: 250;
+  max-width: 480px;
+  margin: 0 auto;
+  overflow-y: auto;
+}
+.knowledge-detail-page.show { display: block; }
+.kd-header {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: white;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.kd-header button {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 18px;
+  cursor: pointer;
+}
+.kd-header h2 { font-size: 17px; }
+.kd-body { padding: 16px 20px 80px; }
+
+/* Care schedule display */
+.schedule-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 12px 0;
+}
+.schedule-item {
+  text-align: center;
+  padding: 8px 4px;
+  border-radius: 8px;
+  background: white;
+  border: 1px solid var(--border);
+}
+.schedule-item .si-icon { font-size: 20px; }
+.schedule-item .si-label { font-size: 10px; color: var(--text-light); margin-top: 2px; }
+.schedule-item .si-value { font-size: 13px; font-weight: 600; color: var(--primary); }
+
+/* Responsive */
+@media (min-width: 481px) {
+  body { box-shadow: 0 0 20px rgba(0,0,0,0.1); }
+}
+
+/* Profile Page */
+.profile-page {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg);
+  z-index: 250;
+  max-width: 480px;
+  margin: 0 auto;
+  overflow-y: auto;
+}
+.profile-page.show { display: block; }
+.profile-header {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: white;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.profile-header button {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 18px;
+  cursor: pointer;
+}
+.profile-header h2 { font-size: 17px; }
+.profile-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #81c784, #388e3c);
+  color: white;
+  font-size: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 24px auto 12px;
+  box-shadow: 0 4px 12px rgba(46,125,50,0.3);
+}
+.profile-username {
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--primary-dark);
+  margin-bottom: 4px;
+}
+.profile-city {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-light);
+  margin-bottom: 24px;
+}
+.profile-section {
+  background: var(--card);
+  margin: 0 16px 12px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.profile-section-title {
+  padding: 12px 16px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-light);
+}
+.profile-item {
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.profile-item:hover { background: #f1f8e9; }
+.profile-item:last-child { border-bottom: none; }
+.profile-item .pi-icon { font-size: 20px; width: 28px; text-align: center; }
+.profile-item .pi-label { flex: 1; font-size: 14px; }
+.profile-item .pi-value { font-size: 13px; color: var(--text-light); }
+.profile-item .pi-arrow { color: var(--text-light); font-size: 12px; }
+
+/* Profile Edit Modal */
+.profile-edit-modal {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg);
+  z-index: 260;
+  max-width: 480px;
+  margin: 0 auto;
+  overflow-y: auto;
+}
+.profile-edit-modal.show { display: block; }
+.pem-header {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: white;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.pem-header button {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 18px;
+  cursor: pointer;
+}
+.pem-header h2 { font-size: 17px; }
+.pem-body { padding: 24px 20px; }
+.pem-body .form-group { margin-bottom: 18px; }
+.pem-body .form-group label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; color: var(--text); }
+.pem-body .form-group input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  font-size: 15px;
+  transition: border-color 0.2s;
+  background: white;
+}
+.pem-body .form-group input:focus { outline: none; border-color: var(--primary); }
+.pem-body .auth-submit { margin-top: 16px; }
+.pem-success {
+  background: #e8f5e9;
+  color: var(--primary-dark);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 12px;
+  display: none;
+  text-align: center;
+}
+
+/* Detail photo gallery */
+.detail-photos {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.detail-photo-item {
+  flex: 0 0 auto;
+  width: 140px;
+  height: 105px;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+.detail-photo-item:hover { transform: scale(1.03); }
+.detail-photo-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.detail-photo-item .photo-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(transparent, rgba(0,0,0,0.6));
+  color: white;
+  font-size: 11px;
+  padding: 12px 8px 4px;
+  text-align: center;
+}
+
+/* Photo lightbox */
+.lightbox {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.92);
+  z-index: 500;
+  align-items: center;
+  justify-content: center;
+  max-width: 480px;
+  margin: 0 auto;
+}
+.lightbox.show { display: flex; }
+.lightbox img {
+  max-width: 95%;
+  max-height: 80vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.lightbox-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  color: white;
+  font-size: 28px;
+  cursor: pointer;
+  z-index: 501;
+}
+.lightbox-counter {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255,255,255,0.7);
+  font-size: 13px;
+}
+.lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  color: white;
+  font-size: 32px;
+  cursor: pointer;
+  padding: 12px;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+.lightbox-nav:hover { opacity: 1; }
+.lightbox-prev { left: 4px; }
+.lightbox-next { right: 4px; }
+
+/* ===== My Plants (植株) ===== */
+.plant-section { margin-top: 8px; border-top: 1px dashed #e0e0e0; padding-top: 8px; }
+.plant-section-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.plant-section-title { font-size:13px; color:#666; font-weight:600; }
+.btn-add-plant { background:#e8f5e9; color:#2e7d32; border:1px dashed #a5d6a7; border-radius:6px; padding:3px 10px; font-size:12px; cursor:pointer; }
+.btn-add-plant:hover { background:#c8e6c9; }
+.plant-item { background:#fafafa; border-radius:8px; padding:8px 10px; margin-bottom:6px; border:1px solid #eee; }
+.plant-item-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; }
+.plant-name { font-size:14px; font-weight:600; color:#333; display:flex; align-items:center; gap:4px; }
+.plant-name-input { border:1px solid #ddd; border-radius:4px; padding:2px 6px; font-size:13px; width:120px; }
+.plant-badges { display:flex; gap:4px; }
+.plant-badge { font-size:11px; padding:1px 6px; border-radius:10px; }
+.plant-badge.overdue { background:#ffebee; color:#c62828; }
+.plant-badge.today { background:#fff3e0; color:#e65100; }
+.plant-badge.ok { background:#e8f5e9; color:#2e7d32; }
+.plant-actions { display:flex; gap:4px; }
+.btn-plant-act { border:none; background:none; cursor:pointer; font-size:14px; padding:2px 4px; opacity:0.6; }
+.btn-plant-act:hover { opacity:1; }
+
+/* Water plan timeline */
+.water-timeline { margin-top:6px; }
+.water-timeline-title { font-size:12px; color:#888; margin-bottom:4px; cursor:pointer; display:flex; align-items:center; gap:4px; }
+.water-plan-item { display:flex; align-items:center; justify-content:space-between; padding:4px 8px; margin-bottom:3px; border-radius:6px; font-size:12px; }
+.water-plan-item.pending { background:#f5f5f5; }
+.water-plan-item.overdue { background:#ffebee; }
+.water-plan-item.done { background:#e8f5e9; text-decoration:line-through; color:#999; }
+.water-plan-item.skipped { background:#f5f5f5; text-decoration:line-through; color:#bbb; }
+.water-plan-item.today { background:#fff3e0; border:1px solid #ffb74d; }
+.water-plan-date { color:#666; }
+.water-plan-item.done .water-plan-date { color:#aaa; }
+.water-plan-actions { display:flex; gap:4px; }
+.btn-wp-done { background:#4caf50; color:white; border:none; border-radius:4px; padding:2px 8px; font-size:11px; cursor:pointer; }
+.btn-wp-done:hover { background:#388e3c; }
+.btn-wp-skip { background:#eee; color:#666; border:none; border-radius:4px; padding:2px 8px; font-size:11px; cursor:pointer; }
+.btn-wp-skip:hover { background:#ddd; }
+
+/* Add plant dialog */
+.add-plant-dialog { display:flex; gap:8px; align-items:center; margin:6px 0; }
+.add-plant-input { flex:1; border:1px solid #ccc; border-radius:6px; padding:6px 10px; font-size:13px; }
+.add-plant-confirm { background:#4caf50; color:white; border:none; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer; }
+.add-plant-confirm:hover { background:#388e3c; }
+.add-plant-cancel { background:#eee; color:#666; border:none; border-radius:6px; padding:6px 10px; font-size:13px; cursor:pointer; }
+
+/* Plant photo & identification */
+.plant-thumb { width:36px; height:36px; border-radius:6px; object-fit:cover; border:1px solid #e0e0e0; flex-shrink:0; }
+.plant-photo-area { text-align:center; margin-bottom:12px; }
+.plant-photo-large { width:100%; max-height:200px; object-fit:contain; border-radius:10px; border:1px solid #e0e0e0; }
+.plant-photo-placeholder { width:100%; height:120px; border:2px dashed #c8e6c9; border-radius:10px; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#999; cursor:pointer; transition: border-color 0.2s, background 0.2s; }
+.plant-photo-placeholder:hover { border-color:#4caf50; background:#f1f8e9; }
+.plant-photo-placeholder .icon { font-size:28px; line-height:1; }
+.plant-photo-placeholder .text { font-size:12px; margin-top:4px; }
+.plant-photo-btns { display:flex; gap:8px; justify-content:center; margin-top:8px; }
+.btn-photo-action { border:none; border-radius:6px; padding:5px 14px; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:4px; }
+.btn-upload-photo { background:#e8f5e9; color:#2e7d32; }
+.btn-upload-photo:hover { background:#c8e6c9; }
+.btn-identify { background:#e3f2fd; color:#1565c0; }
+.btn-identify:hover { background:#bbdefb; }
+.btn-identify:disabled { opacity:0.5; cursor:not-allowed; }
+.identify-result { background:#e8f5e9; border-radius:10px; padding:10px 12px; margin-top:10px; text-align:left; }
+.identify-result h4 { font-size:14px; color:#2e7d32; margin-bottom:6px; display:flex; align-items:center; gap:4px; }
+.identify-result .result-item { font-size:12px; color:#444; margin-bottom:3px; line-height:1.5; }
+.identify-result .result-item strong { color:#333; }
+</style>
+</head>
+<body>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Auth Page -->
+<div class="auth-page" id="authPage">
+  <div class="auth-header">
+    <h1>🌿 花卉养殖助手</h1>
+    <p>让每一朵花都被温柔以待</p>
+  </div>
+  <div class="auth-form" id="authForm">
+    <!-- Login Form -->
+    <div id="loginForm">
+      <h2>欢迎回来</h2>
+      <div class="form-group">
+        <label>用户名</label>
+        <input type="text" id="loginUser" placeholder="请输入用户名">
+      </div>
+      <div class="form-group">
+        <label>密码</label>
+        <input type="password" id="loginPass" placeholder="请输入密码">
+      </div>
+      <div class="auth-error" id="loginError"></div>
+      <button class="auth-submit" onclick="handleLogin()">登 录</button>
+      <div class="auth-switch">
+        还没有账号？<a onclick="showRegister()">立即注册</a>
+      </div>
+    </div>
+    <!-- Register Form -->
+    <div id="registerForm" style="display:none">
+      <h2>创建账号</h2>
+      <div class="form-group">
+        <label>用户名</label>
+        <input type="text" id="regUser" placeholder="请输入用户名（至少3位）">
+      </div>
+      <div class="form-group">
+        <label>密码</label>
+        <input type="password" id="regPass" placeholder="请输入密码（至少6位）">
+      </div>
+      <div class="form-group">
+        <label>确认密码</label>
+        <input type="password" id="regPass2" placeholder="请再次输入密码">
+      </div>
+      <div class="form-group">
+        <label>所在城市（可选，用于季节提醒）</label>
+        <input type="text" id="regCity" placeholder="如：南京、北京">
+      </div>
+      <div class="auth-error" id="regError"></div>
+      <button class="auth-submit" onclick="handleRegister()">注 册</button>
+      <div class="auth-switch">
+        已有账号？<a onclick="showLogin()">去登录</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="mainApp" style="display:none">
+  <div class="header">
+    <h1>🌿 花卉养殖助手</h1>
+    <div class="header-btns">
+      <button class="header-btn" onclick="showMyProfile()">我的</button>
+      <button class="header-btn" onclick="handleLogout()">退出</button>
+    </div>
+  </div>
+
+  <div class="location-bar" id="locationBar">
+    <span>📍</span>
+    <span id="locationText">定位中...</span>
+    <span class="season-tag" id="seasonTag">--</span>
+  </div>
+
+  <div class="tab-nav">
+    <button class="tab-btn active" onclick="switchTab('knowledge')" id="tabKnowledge">📖 养花知识</button>
+    <button class="tab-btn" onclick="switchTab('myflowers')" id="tabMyflowers">🌺 我的花卉<span class="badge" id="myBadge" style="display:none">0</span></button>
+    <button class="tab-btn" onclick="switchTab('reminders')" id="tabReminders">⏰ 养护提醒</button>
+  </div>
+
+  <!-- Knowledge Tab -->
+  <div class="tab-content active" id="contentKnowledge">
+    <div class="season-filter">
+      <button class="season-btn active" onclick="filterSeason('all')">全部</button>
+      <button class="season-btn" onclick="filterSeason('spring')">🌸 春季</button>
+      <button class="season-btn" onclick="filterSeason('summer')">☀️ 夏季</button>
+      <button class="season-btn" onclick="filterSeason('autumn')">🍂 秋季</button>
+      <button class="season-btn" onclick="filterSeason('winter')">❄️ 冬季</button>
+    </div>
+
+    <div class="search-bar">
+      <span class="search-icon">🔍</span>
+      <input type="text" placeholder="搜索花卉..." id="searchInput" oninput="renderFlowerGrid()">
+    </div>
+
+    <div class="flower-grid" id="flowerGrid"></div>
+
+    <!-- General Knowledge Topics -->
+    <div class="knowledge-section" style="margin-top:20px">
+      <div class="knowledge-header">📚 通用养花知识</div>
+      <div class="knowledge-item" onclick="showKnowledgeDetail('soil')">
+        <div class="ki-title">🪴 营养土制作</div>
+        <div class="ki-desc">自制营养土配方与比例<span class="ki-arrow">▸</span></div>
+      </div>
+      <div class="knowledge-item" onclick="showKnowledgeDetail('water')">
+        <div class="ki-title">💧 浇花水制作</div>
+        <div class="ki-desc">自制营养水、发酵水的方法<span class="ki-arrow">▸</span></div>
+      </div>
+      <div class="knowledge-item" onclick="showKnowledgeDetail('grafting')">
+        <div class="ki-title">✂️ 嫁接技术</div>
+        <div class="ki-desc">常见花卉嫁接方法与时机<span class="ki-arrow">▸</span></div>
+      </div>
+      <div class="knowledge-item" onclick="showKnowledgeDetail('fertilize')">
+        <div class="ki-title">🧪 施肥指南</div>
+        <div class="ki-desc">有机肥、复合肥使用技巧<span class="ki-arrow">▸</span></div>
+      </div>
+      <div class="knowledge-item" onclick="showKnowledgeDetail('pest')">
+        <div class="ki-title">🐛 病虫害防治</div>
+        <div class="ki-desc">常见病虫害识别与治理<span class="ki-arrow">▸</span></div>
+      </div>
+      <div class="knowledge-item" onclick="showKnowledgeDetail('repot')">
+        <div class="ki-title">🔄 换盆换土</div>
+        <div class="ki-desc">换盆时机、方法与注意事项<span class="ki-arrow">▸</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- My Flowers Tab -->
+  <div class="tab-content" id="contentMyflowers">
+    <div id="climateBanner" class="climate-banner" style="display:none"></div>
+    <div id="myFlowerList"></div>
+  </div>
+
+  <!-- Plant Detail Modal (植株详情+浇水计划) -->
+  <div class="modal-overlay" id="plantModal">
+    <div class="modal-content" style="max-width:460px">
+      <div class="modal-header">
+        <h2 id="plantModalTitle">植株详情</h2>
+        <button class="modal-close" onclick="closePlantModal()">✕</button>
+      </div>
+      <div class="modal-body" id="plantModalBody"></div>
+    </div>
+  </div>
+
+  <!-- Reminders Tab -->
+  <div class="tab-content" id="contentReminders">
+    <div style="margin-bottom:16px;font-size:16px;font-weight:600;">📋 养护提醒</div>
+    <div id="reminderList"></div>
+  </div>
+</div>
+
+<!-- Flower Detail Modal -->
+<div class="modal-overlay" id="flowerModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="modalFlowerName"></h2>
+      <button class="modal-close" onclick="closeFlowerModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modalFlowerBody"></div>
+  </div>
+</div>
+
+<!-- Knowledge Detail Page -->
+<div class="knowledge-detail-page" id="knowledgeDetailPage">
+  <div class="kd-header">
+    <button onclick="closeKnowledgeDetail()">←</button>
+    <h2 id="kdTitle"></h2>
+  </div>
+  <div class="kd-body" id="kdBody"></div>
+</div>
+
+<!-- My Profile Page -->
+<div class="profile-page" id="profilePage">
+  <div class="profile-header">
+    <button onclick="closeMyProfile()">←</button>
+    <h2>我的</h2>
+  </div>
+  <div id="profileContent"></div>
+</div>
+
+<!-- Profile Edit Modal -->
+<div class="profile-edit-modal" id="profileEditModal">
+  <div class="pem-header">
+    <button onclick="closeProfileEdit()">←</button>
+    <h2 id="pemTitle"></h2>
+  </div>
+  <div class="pem-body" id="pemBody"></div>
+</div>
+
+<!-- Photo Lightbox -->
+<div class="lightbox" id="lightbox">
+  <span class="lightbox-close" onclick="closeLightbox()">&times;</span>
+  <span class="lightbox-nav lightbox-prev" onclick="lightboxNav(-1)">&#8249;</span>
+  <img id="lightboxImg" src="" alt="">
+  <span class="lightbox-nav lightbox-next" onclick="lightboxNav(1)">&#8250;</span>
+  <div class="lightbox-counter" id="lightboxCounter"></div>
+</div>
+
+<script>
+// ==================== API LAYER ====================
+const API = window.location.protocol === 'file:' ? 'http://localhost:8765' : '';
+
+let _serverDown = false;
+
+async function api(path, options = {}) {
+  let resp;
+  try {
+    resp = await fetch(API + path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
+  } catch (e) {
+    _serverDown = true;
+    showServerDownBanner();
+    throw new Error('无法连接服务器');
+  }
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data.error || '请求失败');
+  return data;
+}
+
+function showServerDownBanner() {
+  if (document.getElementById('serverDownBanner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'serverDownBanner';
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:10000;background:#ff4444;color:#fff;padding:12px 16px;font-size:14px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.3);';
+  banner.innerHTML = '服务器未启动，请双击 <b>启动花卉助手.bat</b> 启动服务器 <button onclick="this.parentElement.remove()" style="margin-left:16px;background:rgba(255,255,255,.3);border:none;color:#fff;padding:2px 12px;border-radius:4px;cursor:pointer;">关闭</button>';
+  document.body.appendChild(banner);
+}
+
+// ==================== STATE ====================
+let currentUser = null;  // { id, username, city }
+let allFlowers = [];     // Cache from server
+let currentSeason = 'all';
+let locationData = { city: '未知', lat: null, lng: null };
+
+// ==================== SEASON HELPERS ====================
+function getCurrentSeason() {
+  const month = new Date().getMonth() + 1;
+  if (month >= 3 && month <= 5) return 'spring';
+  if (month >= 6 && month <= 8) return 'summer';
+  if (month >= 9 && month <= 11) return 'autumn';
+  return 'winter';
+}
+function getSeasonName(s) {
+  return { spring: '春季', summer: '夏季', autumn: '秋季', winter: '冬季' }[s] || s;
+}
+function getSeasonEmoji(s) {
+  return { spring: '🌸', summer: '☀️', autumn: '🍂', winter: '❄️' }[s] || '';
+}
+function adjustWaterDays(baseDays, season, city) {
+  // Deprecated - now using server-side climate adjustment
+  // Kept as fallback for knowledge tab only
+  return baseDays;
+}
+
+// ==================== AUTH ====================
+function showLogin() {
+  document.getElementById('loginForm').style.display = '';
+  document.getElementById('registerForm').style.display = 'none';
+}
+function showRegister() {
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('registerForm').style.display = '';
+}
+
+async function handleLogin() {
+  const username = document.getElementById('loginUser').value.trim();
+  const password = document.getElementById('loginPass').value;
+  if (!username || !password) { showAuthError('loginError', '请填写用户名和密码'); return; }
+  try {
+    const data = await api('/api/login', { method: 'POST', body: { username, password } });
+    currentUser = data.user;
+    localStorage.setItem('flower_user', JSON.stringify(currentUser));
+    enterApp();
+  } catch (e) {
+    showAuthError('loginError', e.message);
+  }
+}
+
+async function handleRegister() {
+  const username = document.getElementById('regUser').value.trim();
+  const password = document.getElementById('regPass').value;
+  const password2 = document.getElementById('regPass2').value;
+  const city = document.getElementById('regCity').value.trim();
+  if (!username || username.length < 3) { showAuthError('regError', '用户名至少3个字符'); return; }
+  if (!password || password.length < 6) { showAuthError('regError', '密码至少6位'); return; }
+  if (password !== password2) { showAuthError('regError', '两次密码不一致'); return; }
+  try {
+    const data = await api('/api/register', { method: 'POST', body: { username, password, city } });
+    currentUser = data.user;
+    localStorage.setItem('flower_user', JSON.stringify(currentUser));
+    if (city) { locationData.city = city; updateLocationBar(); }
+    enterApp();
+    showToast('注册成功，欢迎！');
+  } catch (e) {
+    showAuthError('regError', e.message);
+  }
+}
+
+function handleLogout() {
+  currentUser = null;
+  localStorage.removeItem('flower_user');
+  document.getElementById('mainApp').style.display = 'none';
+  document.getElementById('authPage').classList.add('show');
+}
+
+function showAuthError(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 3000);
+}
+
+// ==================== APP ENTRY ====================
+async function enterApp() {
+  document.getElementById('authPage').classList.remove('show');
+  document.getElementById('mainApp').style.display = '';
+  if (currentUser && currentUser.city) {
+    locationData.city = currentUser.city;
+  }
+  initLocation();
+  await loadFlowers();
+  await renderMyFlowers();  // Populate _myFlowerIds first
+  renderFlowerGrid();
+  renderReminders();
+  updateBadge();
+}
+
+async function loadFlowers() {
+  try {
+    const data = await api('/api/flowers');
+    allFlowers = data.flowers;
+    // Apply saved order
+    let order = null;
+    // Try server order if logged in
+    if (currentUser) {
+      try {
+        const od = await api(`/api/user/${currentUser.id}/flower-order`);
+        if (od.order && od.order.length > 0) order = od.order;
+      } catch(e) {}
+    }
+    // Fallback to localStorage
+    if (!order) {
+      const saved = localStorage.getItem('flower_order');
+      if (saved) { try { order = JSON.parse(saved); } catch(e) {} }
+    }
+    if (order && Array.isArray(order) && order.length > 0) {
+      const ordered = [];
+      const remaining = [...allFlowers];
+      for (const id of order) {
+        const idx = remaining.findIndex(f => f.flower_id === id);
+        if (idx >= 0) ordered.push(remaining.splice(idx, 1)[0]);
+      }
+      allFlowers = [...ordered, ...remaining];
+    }
+  } catch (e) {
+    console.error('加载花卉失败:', e);
+    allFlowers = [];
+  }
+}
+
+// ==================== LOCATION & SEASON ====================
+function initLocation() {
+  if (locationData.city && locationData.city !== '未知') {
+    updateLocationBar();
+    return;
+  }
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        locationData.lat = pos.coords.latitude;
+        locationData.lng = pos.coords.longitude;
+        fetch(`https://nominatim.openstreetmap.org/reverse?lat=${locationData.lat}&lon=${locationData.lng}&format=json&accept-language=zh`)
+          .then(r => r.json())
+          .then(data => {
+            if (data.address) {
+              locationData.city = data.address.city || data.address.county || data.address.state || '未知';
+            }
+            updateLocationBar();
+          })
+          .catch(() => updateLocationBar());
+      },
+      () => updateLocationBar()
+    );
+  } else {
+    updateLocationBar();
+  }
+}
+
+function updateLocationBar() {
+  document.getElementById('locationText').textContent = '📍 ' + locationData.city;
+  const season = getCurrentSeason();
+  document.getElementById('seasonTag').textContent = getSeasonEmoji(season) + ' ' + getSeasonName(season);
+}
+
+// ==================== TAB SWITCHING ====================
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  if (tab === 'knowledge') {
+    document.getElementById('tabKnowledge').classList.add('active');
+    document.getElementById('contentKnowledge').classList.add('active');
+  } else if (tab === 'myflowers') {
+    document.getElementById('tabMyflowers').classList.add('active');
+    document.getElementById('contentMyflowers').classList.add('active');
+    renderMyFlowers();
+  } else if (tab === 'reminders') {
+    document.getElementById('tabReminders').classList.add('active');
+    document.getElementById('contentReminders').classList.add('active');
+    renderReminders();
+  }
+}
+
+// ==================== SEASON FILTER ====================
+function filterSeason(season) {
+  currentSeason = season;
+  document.querySelectorAll('.season-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  renderFlowerGrid();
+}
+
+// ==================== FLOWER GRID ====================
+let _dragSrcIdx = null;
+
+function renderFlowerGrid() {
+  const grid = document.getElementById('flowerGrid');
+  const search = document.getElementById('searchInput').value.trim().toLowerCase();
+  const season = currentSeason;
+
+  let filtered = allFlowers;
+  if (search) {
+    filtered = filtered.filter(f => f.name.includes(search) || (f.desc||'').includes(search) || f.flower_id.includes(search));
+  }
+
+  const city = currentUser ? currentUser.city : (locationData.city || '');
+  const curSeason = getCurrentSeason();
+
+  grid.innerHTML = filtered.map((f, idx) => {
+    const isAdded = _myFlowerIds.includes(f.flower_id);
+    const sd = season !== 'all' ? (f.seasons[season]||{}) : (f.seasons[curSeason]||{});
+    const waterDisplay = sd.water || '';
+    return `
+      <div class="flower-card" data-idx="${idx}" data-id="${f.flower_id}" draggable="true"
+           onclick="showFlowerDetail('${f.flower_id}')">
+        <div class="drag-handle" title="拖拽排序" onclick="event.stopPropagation()">⠿</div>
+        <div class="flower-img"><img src="${f.photo}" alt="${f.name}" onerror="this.style.display='none';this.parentElement.innerHTML='<span class=emoji-fallback>${f.emoji}</span>'"></div>
+        <div class="flower-info">
+          <div class="flower-name">${f.name}</div>
+          <div class="flower-desc">${season !== 'all' ? '💧 ' + waterDisplay + ' · 🧪 ' + (sd.fertilize||'') : (f.desc||'')}</div>
+        </div>
+        <button class="add-btn ${isAdded ? 'added' : ''}" onclick="event.stopPropagation(); ${isAdded ? '' : "addMyFlower('" + f.flower_id + "')"}">
+          ${isAdded ? '✓ 已添加' : '+ 加入我的花卉'}
+        </button>
+      </div>
+    `;
+  }).join('');
+
+  // Setup drag events
+  setupDragAndDrop(grid, filtered);
+}
+
+function setupDragAndDrop(grid, filtered) {
+  const hasSearch = document.getElementById('searchInput').value.trim().length > 0;
+  const cards = grid.querySelectorAll('.flower-card');
+  cards.forEach(card => {
+    card.addEventListener('dragstart', function(e) {
+      _dragSrcIdx = parseInt(this.dataset.idx);
+      this.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', this.dataset.id);
+    });
+    card.addEventListener('dragend', function() {
+      this.classList.remove('dragging');
+      cards.forEach(c => c.classList.remove('drag-over'));
+    });
+    card.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      cards.forEach(c => c.classList.remove('drag-over'));
+      this.classList.add('drag-over');
+    });
+    card.addEventListener('dragleave', function() {
+      this.classList.remove('drag-over');
+    });
+    card.addEventListener('drop', function(e) {
+      e.preventDefault();
+      this.classList.remove('drag-over');
+      const targetIdx = parseInt(this.dataset.idx);
+      if (_dragSrcIdx === null || _dragSrcIdx === targetIdx) return;
+
+      // Swap positions in allFlowers
+      const draggedFlower = allFlowers.find(f => f.flower_id === filtered[_dragSrcIdx].flower_id);
+      if (!draggedFlower) return;
+      const srcId = filtered[_dragSrcIdx].flower_id;
+      const tgtId = filtered[targetIdx].flower_id;
+      const realSrc = allFlowers.findIndex(f => f.flower_id === srcId);
+      const realTgt = allFlowers.findIndex(f => f.flower_id === tgtId);
+      if (realSrc >= 0 && realTgt >= 0) {
+        allFlowers.splice(realSrc, 1);
+        allFlowers.splice(realTgt > realSrc ? realTgt - 1 : realTgt, 0, draggedFlower);
+      }
+
+      // Save order
+      saveFlowerOrder();
+      renderFlowerGrid();
+    });
+  });
+}
+
+function saveFlowerOrder() {
+  const order = allFlowers.map(f => f.flower_id);
+  localStorage.setItem('flower_order', JSON.stringify(order));
+  // Also save to server if logged in
+  if (currentUser) {
+    api(`/api/user/${currentUser.id}/flower-order`, { method: 'PUT', body: { order } }).catch(() => {
+      showToast('排序同步到服务器失败，已保存到本地');
+    });
+  }
+}
+
+// ==================== FLOWER DETAIL MODAL ====================
+async function showFlowerDetail(flowerId) {
+  const f = allFlowers.find(fl => fl.flower_id === flowerId);
+  if (!f) return;
+
+  const season = getCurrentSeason();
+  document.getElementById('modalFlowerName').textContent = f.emoji + ' ' + f.name;
+
+  const photosHtml = (f.photos && f.photos.length > 0) ? f.photos.map((p, i) => `
+    <div class="detail-photo-item" onclick="openLightbox('${f.flower_id}', ${i})">
+      <img src="${p}" alt="${f.name} ${(f.photo_labels||[])[i]||''}" onerror="this.parentElement.style.display='none'">
+      <div class="photo-label">${(f.photo_labels||[])[i] || ''}</div>
+    </div>
+  `).join('') : '';
+
+  // Fetch climate-adjusted data if logged in with city
+  let adjustedData = f;
+  let climateZone = '';
+  if (currentUser && currentUser.city) {
+    try {
+      const detail = await api(`/api/flowers/${flowerId}?city=${encodeURIComponent(currentUser.city)}`);
+      adjustedData = detail;
+      climateZone = detail.climate_zone || '';
+    } catch(e) { /* fallback to original */ }
+  }
+
+  const body = document.getElementById('modalFlowerBody');
+  body.innerHTML = `
+    ${photosHtml ? `
+    <div style="margin:8px 0 4px;font-size:13px;color:var(--text-light);font-weight:500">📷 实景照片</div>
+    <div class="detail-photos">${photosHtml}</div>
+    ` : ''}
+    <p style="text-align:center;color:var(--text-light);margin-bottom:16px;font-size:14px">${f.desc||''}</p>
+    ${climateZone ? `<div class="climate-banner" style="margin-bottom:12px">📍 ${currentUser.city} · ${climateZone} · 养护周期已根据当地气候自动调整</div>` : ''}
+    <div class="detail-section">
+      <h3>🪴 土壤要求</h3>
+      <p>${f.soil||''}</p>
+    </div>
+    <h3 style="font-size:14px;margin:16px 0 8px;color:var(--primary-dark)">📅 四季养护</h3>
+    <div class="detail-season-tabs">
+      ${['spring','summer','autumn','winter'].map(s =>
+        `<button class="detail-season-tab ${s===season?'active':''}" onclick="switchDetailSeason('${f.flower_id}','${s}',this)">${getSeasonEmoji(s)} ${getSeasonName(s)}</button>`
+      ).join('')}
+    </div>
+    <div id="detailSeasonContent">
+      ${renderSeasonContent(adjustedData, season)}
+    </div>
+    <div class="detail-section" style="margin-top:16px">
+      <h3>✂️ 嫁接</h3>
+      <p>${f.grafting||''}</p>
+    </div>
+    <div class="detail-section">
+      <h3>🔄 换盆</h3>
+      <p>${f.repot||''}</p>
+    </div>
+  `;
+
+  document.getElementById('flowerModal').classList.add('show');
+}
+
+function renderSeasonContent(f, season) {
+  const s = (f.seasons && f.seasons[season]) || {};
+  const waterDisplay = s.water || '-';
+  const fertDisplay = s.fertilize || '-';
+  const waterChanged = s.water_original && s.water && s.water !== s.water_original;
+  const fertChanged = s.fertilize_original && s.fertilize && s.fertilize !== s.fertilize_original;
+  const waterTag = waterChanged ? `<span class="climate-adjusted" title="原标准: ${s.water_original}">🔄</span>` : '';
+  const fertTag = fertChanged ? `<span class="climate-adjusted" title="原标准: ${s.fertilize_original}">🔄</span>` : '';
+  return `
+    <div class="schedule-grid">
+      <div class="schedule-item"><div class="si-icon">💧</div><div class="si-label">浇水周期</div><div class="si-value">${waterDisplay}${waterTag}</div></div>
+      <div class="schedule-item"><div class="si-icon">🧪</div><div class="si-label">施肥</div><div class="si-value" style="font-size:11px">${fertDisplay}${fertTag}</div></div>
+      <div class="schedule-item"><div class="si-icon">☀️</div><div class="si-label">光照</div><div class="si-value" style="font-size:11px">${season==='summer'?'遮阴':season==='winter'?'充足':'适当'}</div></div>
+      <div class="schedule-item"><div class="si-icon">🌡️</div><div class="si-label">温度</div><div class="si-value" style="font-size:11px">${season==='winter'?'保暖':'适宜'}</div></div>
+    </div>
+    <div class="detail-section"><h3>${getSeasonEmoji(season)} ${getSeasonName(season)}养护要点</h3><p>${s.tips||''}</p></div>
+  `;
+}
+
+async function switchDetailSeason(flowerId, season, btn) {
+  const f = allFlowers.find(fl => fl.flower_id === flowerId);
+  if (!f) return;
+  btn.parentElement.querySelectorAll('.detail-season-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  // Try to use cached climate-adjusted data
+  let adjustedData = f;
+  if (currentUser && currentUser.city) {
+    try {
+      const detail = await api(`/api/flowers/${flowerId}?city=${encodeURIComponent(currentUser.city)}`);
+      adjustedData = detail;
+    } catch(e) { /* fallback */ }
+  }
+  document.getElementById('detailSeasonContent').innerHTML = renderSeasonContent(adjustedData, season);
+}
+
+function closeFlowerModal() {
+  document.getElementById('flowerModal').classList.remove('show');
+}
+
+// ==================== MY FLOWERS ====================
+let _myFlowerIds = [];
+
+async function addMyFlower(flowerId) {
+  if (!currentUser) return;
+  try {
+    await api(`/api/user/${currentUser.id}/flowers/${flowerId}`, { method: 'POST' });
+    const f = allFlowers.find(fl => fl.flower_id === flowerId);
+    _myFlowerIds.push(flowerId);
+    renderFlowerGrid();
+    updateBadge();
+    showToast((f ? f.name : '花卉') + ' 已添加到我的花卉');
+  } catch (e) {
+    showToast(e.message);
+  }
+}
+
+async function removeMyFlower(flowerId) {
+  if (!currentUser) return;
+  try {
+    await api(`/api/user/${currentUser.id}/flowers/${flowerId}`, { method: 'DELETE' });
+    _myFlowerIds = _myFlowerIds.filter(id => id !== flowerId);
+    renderMyFlowers();
+    renderFlowerGrid();
+    updateBadge();
+  } catch (e) {
+    showToast(e.message);
+  }
+}
+
+async function recordAction(flowerId, action) {
+  if (!currentUser) return;
+  try {
+    const data = await api(`/api/user/${currentUser.id}/care`, {
+      method: 'POST',
+      body: { flower_id: flowerId, action }
+    });
+    const f = allFlowers.find(fl => fl.flower_id === flowerId);
+    const actionNames = { water: '浇水', fertilize: '施肥', repot: '换盆' };
+    showToast(f.name + ' · ' + actionNames[action] + ' 已记录');
+    renderMyFlowers();
+    renderReminders();
+  } catch (e) {
+    showToast(e.message);
+  }
+}
+
+async function renderMyFlowers() {
+  const container = document.getElementById('myFlowerList');
+  if (!currentUser) return;
+  try {
+    const data = await api(`/api/user/${currentUser.id}/flowers`);
+    const myFlowers = data.flowers;
+    const climate = data.climate;
+    _myFlowerIds = myFlowers.map(f => f.flower_id);
+
+    const season = getCurrentSeason();
+
+    // Show climate info banner
+    const climateBanner = document.getElementById('climateBanner');
+    if (climateBanner && climate) {
+      climateBanner.innerHTML = `📍 ${climate.city || '未知'} · ${climate.zone_name || '暖温带'} · ${climate.zone_desc || ''}`;
+      climateBanner.style.display = '';
+    }
+
+    if (myFlowers.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">🌱</div>
+          <p>还没有添加任何花卉</p>
+          <button onclick="switchTab('knowledge')">去选择花卉</button>
+        </div>`;
+      return;
+    }
+
+    // Load all plants for this user
+    let allPlants = [];
+    try {
+      const pData = await api(`/api/user/${currentUser.id}/plants`);
+      allPlants = pData.plants || [];
+    } catch(e) { /* ignore */ }
+
+    container.innerHTML = myFlowers.map(mf => {
+      const sd = (mf.seasons && mf.seasons[season]) || {};
+      const adjWater = sd.water || '?天';
+      const adjFert = sd.fertilize || '';
+      const waterChanged = sd.water_original && sd.water && sd.water !== sd.water_original;
+      const fertChanged = sd.fertilize_original && sd.fertilize && sd.fertilize !== sd.fertilize_original;
+
+      let waterInterval = 5;
+      const wm = adjWater.match(/(\d+)/);
+      if (wm) waterInterval = parseInt(wm[1]);
+
+      const daysSinceWater = mf.last_water ? Math.floor((Date.now() - new Date(mf.last_water).getTime()) / 86400000) : null;
+      const waterStatus = daysSinceWater === null ? '尚未记录' :
+        daysSinceWater >= waterInterval ? '⚠️ 需要浇水' :
+        '✅ ' + (waterInterval - daysSinceWater) + '天后浇水';
+
+      const waterDisplay = waterChanged ? `${adjWater}<span class="climate-adjusted" title="原标准: ${sd.water_original}">🔄</span>` : adjWater;
+      const fertDisplay = fertChanged ? `${adjFert}<span class="climate-adjusted" title="原标准: ${sd.fertilize_original}">🔄</span>` : adjFert;
+
+      // Filter plants for this flower
+      const flowerPlants = allPlants.filter(p => p.flower_id === mf.flower_id);
+      let plantsHTML = '';
+      if (flowerPlants.length > 0) {
+        plantsHTML = flowerPlants.map(p => {
+          const intervalDisplay = p.custom_water_days ? `${p.custom_water_days}天 ✏️` : (p.water_interval || '?');
+          const thumbHTML = p.photo ? `<img src="${p.photo}" class="plant-thumb" alt="${p.plant_name}" onerror="this.style.display='none'">` : '';
+          const hasIdResult = p.identify_result && p.identify_result.confirmed;
+          return `
+          <div class="plant-item" onclick="openPlantDetail(${p.id}, '${mf.flower_id}', '${p.plant_name.replace(/'/g, "\\'")}')">
+            <div class="plant-item-header">
+              <span class="plant-name">${thumbHTML} 🌱 ${p.plant_name}${hasIdResult ? ' ✓' : ''}</span>
+              <div class="plant-badges">
+                <span class="plant-badge ok" title="${p.custom_water_days ? '自定义周期' : '气候调整周期'}">💧 ${intervalDisplay}</span>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:#999">点击查看浇水计划 ▸</span>
+              <div class="plant-actions" onclick="event.stopPropagation()">
+                <button class="btn-plant-act" title="改名" onclick="renamePlant(${p.id},'${p.plant_name.replace(/'/g, "\\'")}')">✏️</button>
+                <button class="btn-plant-act" title="删除" onclick="removePlant(${p.id},'${p.plant_name.replace(/'/g, "\\'")}')">🗑</button>
+              </div>
+            </div>
+          </div>`;
+        }).join('');
+      }
+
+      return `
+        <div class="my-flower-item">
+          <div class="my-flower-header" onclick="showFlowerDetail('${mf.flower_id}')">
+            <div class="my-flower-emoji"><img src="${mf.photo||''}" alt="${mf.name}" onerror="this.parentElement.innerHTML='${mf.emoji||''}'"></div>
+            <div class="my-flower-meta">
+              <div class="my-flower-name">${mf.name}</div>
+              <div class="my-flower-status">💧 ${waterDisplay}一次 · ${waterStatus}</div>
+              ${adjFert ? `<div class="my-flower-status-sub">🧪 ${fertDisplay}</div>` : ''}
+            </div>
+            <div class="my-flower-actions" onclick="event.stopPropagation()">
+              <button class="btn-water" onclick="recordAction('${mf.flower_id}','water')">💧浇水</button>
+              <button class="btn-fertilize" onclick="recordAction('${mf.flower_id}','fertilize')">🧪施肥</button>
+              <button class="btn-remove" onclick="removeMyFlower('${mf.flower_id}')">移除</button>
+            </div>
+          </div>
+          <div class="plant-section" onclick="event.stopPropagation()">
+            <div class="plant-section-header">
+              <span class="plant-section-title">🌱 我的植株 (${flowerPlants.length})</span>
+              <button class="btn-add-plant" onclick="showAddPlantDialog('${mf.flower_id}', this)">+ 添加植株</button>
+            </div>
+            <div class="add-plant-dialog" id="addPlant-${mf.flower_id}" style="display:none">
+              <input class="add-plant-input" placeholder="给植株起个名字..." maxlength="20"
+                     onkeydown="if(event.key==='Enter')confirmAddPlant('${mf.flower_id}',this)">
+              <button class="add-plant-confirm" onclick="confirmAddPlant('${mf.flower_id}',this.previousElementSibling)">确定</button>
+              <button class="add-plant-cancel" onclick="hideAddPlantDialog('${mf.flower_id}')">取消</button>
+            </div>
+            <div class="plant-list">${plantsHTML || '<div style="font-size:12px;color:#bbb;padding:4px 0">还没有植株，点击上方添加</div>'}</div>
+          </div>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>加载失败: ${e.message}</p></div>`;
+  }
+}
+
+// ==================== MY PLANTS (植株管理) ====================
+function showAddPlantDialog(flowerId, btn) {
+  const dialog = document.getElementById('addPlant-' + flowerId);
+  dialog.style.display = 'flex';
+  dialog.querySelector('input').value = '';
+  dialog.querySelector('input').focus();
+  btn.style.display = 'none';
+}
+function hideAddPlantDialog(flowerId) {
+  const dialog = document.getElementById('addPlant-' + flowerId);
+  dialog.style.display = 'none';
+  const prevBtn = dialog.parentElement.querySelector('.btn-add-plant');
+  if (prevBtn) prevBtn.style.display = '';
+}
+
+async function confirmAddPlant(flowerId, inputEl) {
+  const name = inputEl.value.trim();
+  if (!name) { showToast('请输入植株名称'); return; }
+  try {
+    await api(`/api/user/${currentUser.id}/plants`, {
+      method: 'POST',
+      body: { flower_id: flowerId, plant_name: name }
+    });
+    showToast(`🌱 植株「${name}」已添加，浇水计划已自动生成`);
+    renderMyFlowers();
+  } catch(e) {
+    showToast(e.message);
+  }
+}
+
+async function openPlantDetail(plantId, flowerId, plantName) {
+  const modal = document.getElementById('plantModal');
+  document.getElementById('plantModalTitle').textContent = `🌱 ${plantName} · 浇水计划`;
+  const body = document.getElementById('plantModalBody');
+  body.innerHTML = '<div style="text-align:center;padding:20px;color:#999">加载中...</div>';
+  modal.style.display = 'flex';
+
+  try {
+    // Get plant info (for custom_water_days and default interval)
+    const pData = await api(`/api/user/${currentUser.id}/plants`);
+    const plantInfo = (pData.plants||[]).find(p => p.id === plantId);
+    const customDays = plantInfo ? plantInfo.custom_water_days : null;
+    const defaultInterval = plantInfo ? (plantInfo.water_interval || '?') : '?';
+    const effectiveInterval = plantInfo ? (plantInfo.water_interval_effective || plantInfo.water_interval || '?') : '?';
+
+    const data = await api(`/api/user/${currentUser.id}/plants/${plantId}/water-plans`);
+    const plans = data.plans || [];
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Stats
+    const pending = plans.filter(p => p.status === 'pending');
+    const overdue = pending.filter(p => p.plan_date < today);
+    const todayPlans = pending.filter(p => p.plan_date === today);
+    const done = plans.filter(p => p.status === 'done');
+    const skipped = plans.filter(p => p.status === 'skipped');
+
+    let html = `
+      <!-- Photo area -->
+      <div class="plant-photo-area" id="plantPhotoArea">
+        ${plantInfo && plantInfo.photo ? `
+          <img src="${plantInfo.photo}" class="plant-photo-large" alt="${plantName}"
+               onerror="this.parentElement.innerHTML='<div class=\\'plant-photo-placeholder\\' onclick=\\'triggerPhotoUpload(${plantId})\\'><div class=\\'icon\\'>📷</div><div class=\\'text\\'>点击上传照片</div></div>'">
+          <div class="plant-photo-btns">
+            <button class="btn-photo-action btn-upload-photo" onclick="triggerPhotoUpload(${plantId})">📷 更换照片</button>
+            <button class="btn-photo-action btn-identify" id="btnIdentify" onclick="identifyPlant(${plantId})" ${!plantInfo.photo ? 'disabled' : ''}>🔍 智能识别</button>
+          </div>
+        ` : `
+          <div class="plant-photo-placeholder" onclick="triggerPhotoUpload(${plantId})">
+            <div class="icon">📷</div>
+            <div class="text">点击上传植株照片</div>
+          </div>
+          <div class="plant-photo-btns" style="display:none" id="photoBtnsHidden">
+            <button class="btn-photo-action btn-upload-photo" onclick="triggerPhotoUpload(${plantId})">📷 更换照片</button>
+            <button class="btn-photo-action btn-identify" id="btnIdentify" onclick="identifyPlant(${plantId})" disabled>🔍 智能识别</button>
+          </div>
+        `}
+        <input type="file" id="photoUploadInput" accept="image/*" style="display:none" onchange="handlePhotoUpload(event, ${plantId})">
+      </div>
+
+      <!-- Identify result (if exists) -->
+      ${plantInfo && plantInfo.identify_result && plantInfo.identify_result.confirmed ? renderIdentifyResult(plantInfo.identify_result) : ''}
+
+      <!-- Water cycle setting -->
+      <div style="background:#f5f5f5;border-radius:10px;padding:10px 12px;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px;color:#333">⏱ 浇水周期设置</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:12px;color:#666">默认:</span>
+          <span style="font-size:12px;color:#888">${defaultInterval}</span>
+          <span style="font-size:12px;color:#666;margin-left:8px">自定义:</span>
+          <input type="number" id="customWaterDays" min="1" max="60" placeholder="不填则用默认"
+                 value="${customDays || ''}"
+                 style="width:70px;padding:4px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:center">
+          <span style="font-size:12px;color:#666">天/次</span>
+          <button onclick="setCustomWaterDays(${plantId})" style="background:#4caf50;color:white;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">应用</button>
+          ${customDays ? `<button onclick="clearCustomWaterDays(${plantId})" style="background:#eee;color:#666;border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer">恢复默认</button>` : ''}
+        </div>
+        ${customDays ? `<div style="font-size:11px;color:#e65100;margin-top:4px">当前使用自定义周期: ${customDays}天/次（已忽略季节和气候调整）</div>` : `<div style="font-size:11px;color:#999;margin-top:4px">当前使用气候调整周期: ${effectiveInterval}</div>`}
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+        <div style="flex:1;min-width:80px;background:#ffebee;border-radius:8px;padding:8px;text-align:center">
+          <div style="font-size:20px;font-weight:700;color:#c62828">${overdue.length}</div>
+          <div style="font-size:11px;color:#c62828">逾期</div>
+        </div>
+        <div style="flex:1;min-width:80px;background:#fff3e0;border-radius:8px;padding:8px;text-align:center">
+          <div style="font-size:20px;font-weight:700;color:#e65100">${todayPlans.length}</div>
+          <div style="font-size:11px;color:#e65100">今日待浇</div>
+        </div>
+        <div style="flex:1;min-width:80px;background:#e8f5e9;border-radius:8px;padding:8px;text-align:center">
+          <div style="font-size:20px;font-weight:700;color:#2e7d32">${done.length}</div>
+          <div style="font-size:11px;color:#2e7d32">已完成</div>
+        </div>
+        <div style="flex:1;min-width:80px;background:#f5f5f5;border-radius:8px;padding:8px;text-align:center">
+          <div style="font-size:20px;font-weight:700;color:#999">${skipped.length}</div>
+          <div style="font-size:11px;color:#999">已跳过</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:12px">
+        <button class="btn-wp-done" style="padding:4px 12px;font-size:12px" onclick="regenPlans(${plantId})">🔄 重新生成计划</button>
+        <button style="background:#ff5252;color:white;border:none;border-radius:4px;padding:4px 12px;font-size:12px;cursor:pointer" onclick="deletePlant(${plantId},'${plantName.replace(/'/g, "\\'")}')">🗑 删除植株</button>
+      </div>
+    `;
+
+    // Show pending plans first (overdue + today + upcoming)
+    const showPlans = [];
+    // Overdue
+    overdue.forEach(p => showPlans.push({...p, _class: 'overdue', _label: '逾期'}));
+    // Today
+    todayPlans.forEach(p => showPlans.push({...p, _class: 'today', _label: '今日'}));
+    // Upcoming (next 14 days, pending only)
+    const upcoming = pending.filter(p => p.plan_date > today).slice(0, 14);
+    upcoming.forEach(p => {
+      const days = Math.ceil((new Date(p.plan_date) - new Date(today)) / 86400000);
+      showPlans.push({...p, _class: 'pending', _label: days + '天后'});
+    });
+    // Recent done (last 7)
+    const recentDone = done.sort((a,b) => b.actual_date.localeCompare(a.actual_date)).slice(0, 7);
+    recentDone.forEach(p => showPlans.push({...p, _class: 'done', _label: '已完成'}));
+
+    if (showPlans.length === 0) {
+      html += '<div style="text-align:center;color:#999;padding:20px">暂无浇水计划</div>';
+    } else {
+      html += '<div style="font-size:13px;font-weight:600;margin-bottom:6px;color:#333">📋 浇水计划</div>';
+      html += showPlans.map(p => {
+        const dateStr = p.plan_date;
+        const weekday = ['日','一','二','三','四','五','六'][new Date(dateStr).getDay()];
+        return `
+          <div class="water-plan-item ${p._class}">
+            <div>
+              <span class="water-plan-date">${dateStr} 周${weekday}</span>
+              <span style="margin-left:6px;font-size:11px;color:${p._class==='overdue'?'#c62828':p._class==='today'?'#e65100':'#999'}">${p._label}</span>
+            </div>
+            ${p.status === 'pending' ? `
+              <div class="water-plan-actions">
+                <button class="btn-wp-done" onclick="completePlan(${p.id}, ${plantId})">✓ 浇水</button>
+                <button class="btn-wp-skip" onclick="skipPlan(${p.id}, ${plantId})">跳过</button>
+              </div>
+            ` : p.status === 'done' ? `<span style="font-size:11px;color:#999">${(p.actual_date||'').slice(5,16)}</span>` : ''}
+          </div>`;
+      }).join('');
+    }
+
+    body.innerHTML = html;
+  } catch(e) {
+    body.innerHTML = `<div style="text-align:center;color:#c62828;padding:20px">加载失败: ${e.message}</div>`;
+  }
+}
+
+function closePlantModal() {
+  document.getElementById('plantModal').style.display = 'none';
+}
+
+async function completePlan(planId, plantId) {
+  try {
+    await api(`/api/user/${currentUser.id}/water-plans/${planId}/complete`, { method: 'POST' });
+    showToast('💧 浇水完成！');
+    // Refresh modal
+    const modal = document.getElementById('plantModal');
+    const title = document.getElementById('plantModalTitle').textContent;
+    const nameMatch = title.match(/🌱 (.+?) ·/);
+    const plantName = nameMatch ? nameMatch[1] : '';
+    // Get flower_id from plants data
+    const pData = await api(`/api/user/${currentUser.id}/plants`);
+    const plant = (pData.plants||[]).find(p => p.id === plantId);
+    if (plant) openPlantDetail(plantId, plant.flower_id, plantName);
+    renderMyFlowers();
+  } catch(e) { showToast(e.message); }
+}
+
+async function skipPlan(planId, plantId) {
+  try {
+    await api(`/api/user/${currentUser.id}/water-plans/${planId}/skip`, { method: 'POST' });
+    showToast('已跳过该次浇水');
+    const pData = await api(`/api/user/${currentUser.id}/plants`);
+    const plant = (pData.plants||[]).find(p => p.id === plantId);
+    const title = document.getElementById('plantModalTitle').textContent;
+    const nameMatch = title.match(/🌱 (.+?) ·/);
+    const plantName = nameMatch ? nameMatch[1] : '';
+    if (plant) openPlantDetail(plantId, plant.flower_id, plantName);
+  } catch(e) { showToast(e.message); }
+}
+
+async function regenPlans(plantId) {
+  try {
+    await api(`/api/user/${currentUser.id}/plants/${plantId}/water-plans/regenerate`, { method: 'POST' });
+    showToast('🔄 浇水计划已重新生成');
+    const pData = await api(`/api/user/${currentUser.id}/plants`);
+    const plant = (pData.plants||[]).find(p => p.id === plantId);
+    const title = document.getElementById('plantModalTitle').textContent;
+    const nameMatch = title.match(/🌱 (.+?) ·/);
+    const plantName = nameMatch ? nameMatch[1] : '';
+    if (plant) openPlantDetail(plantId, plant.flower_id, plantName);
+    renderMyFlowers();
+  } catch(e) { showToast(e.message); }
+}
+
+async function deletePlant(plantId, plantName) {
+  if (!confirm(`确定删除植株「${plantName}」及其所有浇水计划吗？`)) return;
+  try {
+    await api(`/api/user/${currentUser.id}/plants/${plantId}`, { method: 'DELETE' });
+    showToast(`已删除植株「${plantName}」`);
+    closePlantModal();
+    renderMyFlowers();
+  } catch(e) { showToast(e.message); }
+}
+
+async function renamePlant(plantId, oldName) {
+  const newName = prompt('修改植株名称:', oldName);
+  if (!newName || newName.trim() === '' || newName.trim() === oldName) return;
+  try {
+    await api(`/api/user/${currentUser.id}/plants/${plantId}`, {
+      method: 'PUT',
+      body: { plant_name: newName.trim() }
+    });
+    showToast(`已改名为「${newName.trim()}」`);
+    renderMyFlowers();
+  } catch(e) { showToast(e.message); }
+}
+
+async function removePlant(plantId, plantName) {
+  if (!confirm(`确定删除植株「${plantName}」及其浇水计划吗？`)) return;
+  try {
+    await api(`/api/user/${currentUser.id}/plants/${plantId}`, { method: 'DELETE' });
+    showToast(`已删除植株「${plantName}」`);
+    renderMyFlowers();
+  } catch(e) { showToast(e.message); }
+}
+
+async function setCustomWaterDays(plantId) {
+  const input = document.getElementById('customWaterDays');
+  const val = input.value.trim();
+  if (!val) { showToast('请输入浇水天数'); return; }
+  const days = parseInt(val);
+  if (isNaN(days) || days < 1 || days > 60) { showToast('浇水周期需在1-60天之间'); return; }
+  try {
+    await api(`/api/user/${currentUser.id}/plants/${plantId}`, {
+      method: 'PUT',
+      body: { custom_water_days: days }
+    });
+    showToast(`✓ 浇水周期已设为 ${days} 天/次，计划已重新生成`);
+    // Refresh modal
+    const modal = document.getElementById('plantModal');
+    const title = document.getElementById('plantModalTitle').textContent;
+    const nameMatch = title.match(/🌱 (.+?) ·/);
+    const plantName = nameMatch ? nameMatch[1] : '';
+    const pData = await api(`/api/user/${currentUser.id}/plants`);
+    const plant = (pData.plants||[]).find(p => p.id === plantId);
+    if (plant) openPlantDetail(plantId, plant.flower_id, plantName);
+    renderMyFlowers();
+  } catch(e) { showToast(e.message); }
+}
+
+async function clearCustomWaterDays(plantId) {
+  try {
+    await api(`/api/user/${currentUser.id}/plants/${plantId}`, {
+      method: 'PUT',
+      body: { custom_water_days: null }
+    });
+    showToast('✓ 已恢复默认浇水周期，计划已重新生成');
+    const modal = document.getElementById('plantModal');
+    const title = document.getElementById('plantModalTitle').textContent;
+    const nameMatch = title.match(/🌱 (.+?) ·/);
+    const plantName = nameMatch ? nameMatch[1] : '';
+    const pData = await api(`/api/user/${currentUser.id}/plants`);
+    const plant = (pData.plants||[]).find(p => p.id === plantId);
+    if (plant) openPlantDetail(plantId, plant.flower_id, plantName);
+    renderMyFlowers();
+  } catch(e) { showToast(e.message); }
+}
+
+// ==================== PLANT PHOTO & IDENTIFICATION ====================
+function triggerPhotoUpload(plantId) {
+  document.getElementById('photoUploadInput').click();
+}
+
+async function handlePhotoUpload(event, plantId) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  // Validate file size (max 5MB)
+  if (file.size > 5 * 1024 * 1024) {
+    showToast('照片不能超过5MB');
+    event.target.value = '';
+    return;
+  }
+
+  // Show uploading state
+  const photoArea = document.getElementById('plantPhotoArea');
+  const originalHTML = photoArea.innerHTML;
+  photoArea.innerHTML = '<div style="text-align:center;padding:20px;color:#999">上传中...</div>';
+
+  try {
+    const formData = new FormData();
+    formData.append('photo', file);
+
+    const response = await fetch(`${API}/api/user/${currentUser.id}/plants/${plantId}/photo`, {
+      method: 'POST',
+      body: formData
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '上传失败');
+
+    showToast('📷 照片上传成功');
+    // Refresh modal
+    const title = document.getElementById('plantModalTitle').textContent;
+    const nameMatch = title.match(/🌱 (.+?) ·/);
+    const plantName = nameMatch ? nameMatch[1] : '';
+    const pData = await api(`/api/user/${currentUser.id}/plants`);
+    const plant = (pData.plants||[]).find(p => p.id === plantId);
+    if (plant) openPlantDetail(plantId, plant.flower_id, plantName);
+    renderMyFlowers();
+  } catch(e) {
+    showToast(e.message);
+    photoArea.innerHTML = originalHTML;
+  }
+  event.target.value = '';
+}
+
+async function identifyPlant(plantId) {
+  const btn = document.getElementById('btnIdentify');
+  if (btn) { btn.disabled = true; btn.textContent = '🔍 识别中...'; }
+
+  try {
+    const data = await api(`/api/user/${currentUser.id}/plants/${plantId}/identify`, {
+      method: 'POST'
+    });
+    if (data.result) {
+      showToast('✓ 识别完成');
+      // Refresh modal to show result
+      const title = document.getElementById('plantModalTitle').textContent;
+      const nameMatch = title.match(/🌱 (.+?) ·/);
+      const plantName = nameMatch ? nameMatch[1] : '';
+      const pData = await api(`/api/user/${currentUser.id}/plants`);
+      const plant = (pData.plants||[]).find(p => p.id === plantId);
+      if (plant) openPlantDetail(plantId, plant.flower_id, plantName);
+      renderMyFlowers();
+    }
+  } catch(e) {
+    showToast(e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 智能识别'; }
+  }
+}
+
+function renderIdentifyResult(result) {
+  if (!result || !result.confirmed) return '';
+
+  const suggestions = (result.health_suggestions || []).map(s =>
+    `<div class="result-item">• ${s}</div>`
+  ).join('');
+
+  return `
+    <div class="identify-result">
+      <h4>🔍 智能识别结果</h4>
+      <div class="result-item"><strong>品种确认:</strong> ${result.emoji || ''} ${result.name}（置信度: 高）</div>
+      <div class="result-item"><strong>简介:</strong> ${result.description || ''}</div>
+      <div class="result-item"><strong>土壤:</strong> ${result.soil || ''}</div>
+      <div class="result-item"><strong>换盆:</strong> ${result.repot || ''}</div>
+      ${result.grafting ? `<div class="result-item"><strong>嫁接:</strong> ${result.grafting}</div>` : ''}
+      <div class="result-item" style="margin-top:6px"><strong>${result.current_season || ''}养护:</strong></div>
+      <div class="result-item">&nbsp;&nbsp;💧 浇水: ${result.care_advice?.water || ''}</div>
+      <div class="result-item">&nbsp;&nbsp;🧪 施肥: ${result.care_advice?.fertilize || ''}</div>
+      ${result.care_advice?.tips ? `<div class="result-item">&nbsp;&nbsp;💡 ${result.care_advice.tips}</div>` : ''}
+      ${suggestions ? `<div class="result-item" style="margin-top:6px"><strong>健康建议:</strong></div>${suggestions}` : ''}
+      <div class="result-item" style="margin-top:4px;color:#999;font-size:11px">📍 ${result.zone_info?.city || ''} · ${result.zone_info?.zone_name || ''}气候区</div>
+    </div>`;
+}
+
+// ==================== REMINDERS ====================
+async function renderReminders() {
+  const container = document.getElementById('reminderList');
+  if (!currentUser) return;
+  try {
+    const data = await api(`/api/user/${currentUser.id}/reminders`);
+    const reminders = data.reminders;
+
+    if (reminders.length === 0) {
+      // Check if user has flowers
+      const myData = await api(`/api/user/${currentUser.id}/flowers`);
+      if (myData.flowers.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state"><div class="empty-icon">⏰</div><p>添加花卉后即可查看养护提醒</p>
+          <button onclick="switchTab('knowledge')">去选择花卉</button></div>`;
+      } else {
+        container.innerHTML = `
+          <div class="empty-state"><div class="empty-icon">✅</div><p>暂无待办提醒，养花做得很好！</p></div>`;
+      }
+      return;
+    }
+
+    const icons = { water: '💧', fertilize: '🧪' };
+    const labels = { water: '浇水', fertilize: '施肥' };
+    const actionKeys = { water: 'water', fertilize: 'fertilize' };
+
+    container.innerHTML = reminders.map(r => `
+      <div class="my-flower-item" style="margin-bottom:8px">
+        <div class="reminder-card ${r.status}">
+          <span class="reminder-icon">${icons[r.type]||''}</span>
+          <div class="reminder-text">
+            <span class="rt-label">${r.emoji||''} ${r.name} · ${labels[r.type]||r.type}</span><br>
+            <span class="rt-days">${r.msg}${r.days !== null ? '（上次' + r.days + '天前）' : ''}</span>
+          </div>
+          <button class="reminder-action" onclick="recordAction('${r.flower_id}','${actionKeys[r.type]}')">${labels[r.type]||r.type}</button>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>加载失败: ${e.message}</p></div>`;
+  }
+}
+
+// ==================== KNOWLEDGE DETAIL ====================
+const KNOWLEDGE = {
+  soil: {
+    title: '🪴 营养土制作',
+    content: `<h3>一、通用营养土配方</h3><div class="detail-section"><h3>🌸 适合大多数花卉</h3><ul><li><b>腐叶土:园土:河沙 = 4:3:3</b> — 透气保水，适合月季、菊花等</li><li><b>腐叶土:园土:河沙 = 5:3:2</b> — 偏保水，适合栀子花、茉莉等</li><li><b>泥炭:珍珠岩:蛭石 = 4:3:3</b> — 轻质透水，适合盆栽花卉</li></ul></div><div class="detail-section"><h3>🌵 多肉/仙人掌专用</h3><ul><li><b>泥炭:颗粒(麦饭石+赤玉土) = 3:7</b> — 透水优先</li><li><b>园土:腐叶土:粗沙:炉渣 = 3:2:3:2</b></li></ul></div><div class="detail-section"><h3>🪻 兰花专用植料</h3><ul><li><b>树皮:兰石:水苔 = 3:3:4</b> — 透气第一</li></ul></div><div class="detail-section"><h3>🌺 喜酸性花卉（茶花、栀子、杜鹃）</h3><ul><li><b>山泥:腐叶土:河沙 = 5:3:2</b></li><li>定期施硫酸亚铁保持土壤酸性</li></ul></div><h3>二、自制腐叶土步骤</h3><div class="detail-section"><ol><li>收集落叶（橡树、榆树等阔叶最佳）</li><li>将落叶撕碎，与少量园土分层堆放</li><li>浇透水，覆盖塑料膜保温保湿</li><li>每月翻动一次，保持湿润</li><li>3-6个月后腐熟变黑，过筛即可使用</li></ol></div>`
+  },
+  water: {
+    title: '💧 浇花水制作',
+    content: `<h3>一、自制营养浇花水</h3><div class="detail-section"><h3>🥚 鸡蛋壳水（补钙）</h3><ul><li>鸡蛋壳洗净晒干，碾碎</li><li>泡入水中，密封7-10天</li><li>稀释后浇花，补钙促根</li></ul></div><div class="detail-section"><h3>🍌 香蕉皮水（补钾）</h3><ul><li>香蕉皮剪碎，泡水3-5天</li><li>稀释10倍浇花，促花促果</li></ul></div><div class="detail-section"><h3>🌾 淘米水（综合营养）</h3><ul><li>淘米水装入塑料瓶，加几片橘皮去味</li><li>密封发酵2-3周（夏季1-2周）</li><li>稀释5-10倍后浇花，必须发酵后再用！</li></ul></div><div class="detail-section"><h3>🍃 果皮酵素水</h3><ul><li>果皮:红糖:水 = 3:1:10</li><li>密封发酵3个月，每天放气</li><li>稀释50倍浇花</li></ul></div><h3>二、特殊用途浇花水</h3><div class="detail-section"><h3>🧲 硫酸亚铁水（治黄叶）</h3><ul><li>1克硫酸亚铁兑1升水</li><li>每月浇1-2次，适合栀子、茶花等喜酸花卉</li></ul></div><div class="detail-section"><h3>🍺 啤酒浇花</h3><ul><li>啤酒:水 = 1:10，浇根促生长</li><li>啤酒:水 = 1:20，擦叶片使叶面光亮</li></ul></div><div class="detail-section"><h3>🌧️ 雨水收集</h3><ul><li>雨水是天然软水，微酸性，最宜浇花</li></ul></div>`
+  },
+  grafting: {
+    title: '✂️ 嫁接技术',
+    content: `<h3>一、嫁接基础知识</h3><div class="detail-section"><ul><li><b>嫁接</b>：将优良品种的枝条或芽接到另一植株上</li><li><b>目的</b>：保持品种特性、提前开花、增强抗性</li><li><b>亲和力</b>：同属近亲品种亲和力高</li></ul></div><h3>二、常见嫁接方法</h3><div class="detail-section"><h3>🔪 劈接法</h3><ul><li>砧木顶部平切，从中间劈开</li><li>接穗削成楔形，插入砧木劈口</li><li>对齐形成层，绑扎密封</li><li>适合：月季、茶花、三角梅</li></ul></div><div class="detail-section"><h3>🌱 芽接法</h3><ul><li>砧木上切T形口，剥开树皮</li><li>取接穗芽片插入T形口</li><li>适合：月季、海棠、牡丹</li></ul></div><div class="detail-section"><h3>🤝 靠接法</h3><ul><li>砧木和接穗各削一刀露出形成层</li><li>靠在一起绑扎，成活后剪断接穗下部</li><li>适合：茶花、白兰</li></ul></div><h3>三、嫁接时机</h3><div class="detail-section"><ul><li><b>春季(3-4月)</b>：最佳嫁接期</li><li><b>夏季(6-7月)</b>：可芽接</li><li><b>秋季(9-10月)</b>：牡丹等秋季嫁接</li></ul></div><h3>四、注意事项</h3><div class="detail-section"><ul><li>刀具要锋利清洁</li><li>形成层必须对齐</li><li>接口包严密封</li><li>接后遮阴，成活前不施肥</li></ul></div>`
+  },
+  fertilize: {
+    title: '🧪 施肥指南',
+    content: `<h3>一、肥料分类</h3><div class="detail-section"><h3>🌿 有机肥</h3><ul><li><b>饼肥水</b>：豆饼泡水发酵，氮肥为主</li><li><b>骨粉</b>：磷肥丰富，促花</li><li><b>草木灰</b>：钾肥为主，促根促花，碱性</li><li><b>鸡粪/羊粪</b>：腐熟后使用</li></ul></div><div class="detail-section"><h3>💊 化学肥</h3><ul><li><b>尿素</b>：高氮肥，促叶片</li><li><b>磷酸二氢钾</b>：磷钾肥，促花促根</li><li><b>复合肥</b>：NPK均衡</li><li><b>缓释肥</b>：慢慢释放3-6个月</li></ul></div><h3>二、施肥原则</h3><div class="detail-section"><ul><li><b>薄肥勤施</b>：7-15天一次</li><li><b>生长期多施</b>，休眠期不施</li><li><b>花前增磷钾</b>，花后补氮肥</li><li><b>新上盆不施肥</b>，缓苗2周后再施</li><li><b>夏季高温少施</b>，冬季停肥</li></ul></div><h3>三、四季施肥要点</h3><div class="detail-section"><h3>🌸 春季</h3><ul><li>以氮肥为主促新芽</li><li>萌芽期追施促花肥</li></ul></div><div class="detail-section"><h3>☀️ 夏季</h3><ul><li>薄肥少施，高温期部分停肥</li><li>傍晚施肥，避免午间烧根</li></ul></div><div class="detail-section"><h3>🍂 秋季</h3><ul><li>增施磷钾肥促花芽分化</li><li>减少氮肥防止嫩梢冻伤</li></ul></div><div class="detail-section"><h3>❄️ 冬季</h3><ul><li>大部分花卉停止施肥</li><li>施基肥越冬</li></ul></div>`
+  },
+  pest: {
+    title: '🐛 病虫害防治',
+    content: `<h3>一、常见虫害</h3><div class="detail-section"><h3>🪲 蚜虫</h3><ul><li>症状：嫩叶卷曲，叶面有粘液</li><li>防治：吡虫啉喷洒，或肥皂水擦洗</li></ul></div><div class="detail-section"><h3>🕷️ 红蜘蛛</h3><ul><li>症状：叶面密集小黄点，叶背有细丝</li><li>防治：阿维菌素喷洒，增加空气湿度</li></ul></div><div class="detail-section"><h3>🦟 介壳虫</h3><ul><li>症状：茎叶上有白色/棕色小凸起</li><li>防治：酒精棉签擦除，或蚧必治喷洒</li></ul></div><h3>二、常见病害</h3><div class="detail-section"><h3>🦠 黑斑病</h3><ul><li>症状：叶片黑色圆形斑点</li><li>防治：摘除病叶，多菌灵喷洒</li></ul></div><div class="detail-section"><h3>🤍 白粉病</h3><ul><li>症状：叶面覆白色粉状物</li><li>防治：三唑酮喷洒，改善通风</li></ul></div><div class="detail-section"><h3>💀 根腐病</h3><ul><li>症状：植株萎蔫，根部发黑腐烂</li><li>防治：脱盆修根，多菌灵浸泡，换土重栽</li></ul></div><h3>三、自制药剂</h3><div class="detail-section"><ul><li><b>洗衣粉水</b>：1克洗衣粉+1升水</li><li><b>辣椒水</b>：干辣椒泡水24小时</li><li><b>大蒜水</b>：大蒜捣碎泡水</li><li><b>酒精</b>：75%酒精擦介壳虫</li></ul></div>`
+  },
+  repot: {
+    title: '🔄 换盆换土',
+    content: `<h3>一、何时需要换盆</h3><div class="detail-section"><ul><li>根系从排水孔长出</li><li>浇水后水很快流出</li><li>植株明显大于花盆</li><li>土壤板结、发硬</li><li>常规1-2年换一次</li></ul></div><h3>二、换盆最佳时间</h3><div class="detail-section"><ul><li><b>春季(3-4月)</b>：最佳时期</li><li><b>秋季(9-10月)</b>：次选</li><li>避开盛夏和严冬</li><li>避开花期和花蕾期</li></ul></div><h3>三、换盆步骤</h3><div class="detail-section"><ol><li><b>控水</b>：换盆前3-5天停止浇水</li><li><b>脱盆</b>：轻拍盆壁，整根取出</li><li><b>去土</b>：去除1/3-1/2旧土</li><li><b>修根</b>：剪除烂根、枯根、过长根</li><li><b>晾根</b>：阴凉处晾30分钟</li><li><b>上盆</b>：新盆垫排水层，加新土</li><li><b>定植</b>：放入植株，填土压实</li><li><b>浇定根水</b>：浇透至排水孔出水</li><li><b>缓苗</b>：放阴凉处7-10天，不施肥</li></ol></div><h3>四、注意事项</h3><div class="detail-section"><ul><li>新盆不宜过大，比旧盆大2-3cm即可</li><li>旧盆需清洗消毒再用</li><li>多肉换盆需修根后晾1-2天</li><li>缓苗期间叶面可喷水保湿</li></ul></div>`
+  }
+};
+
+function showKnowledgeDetail(key) {
+  const kd = KNOWLEDGE[key];
+  if (!kd) return;
+  document.getElementById('kdTitle').textContent = kd.title;
+  document.getElementById('kdBody').innerHTML = kd.content;
+  document.getElementById('knowledgeDetailPage').classList.add('show');
+}
+
+function closeKnowledgeDetail() {
+  document.getElementById('knowledgeDetailPage').classList.remove('show');
+}
+
+// ==================== MY PROFILE ====================
+async function showMyProfile() {
+  if (!currentUser) return;
+  try {
+    const data = await api(`/api/user/${currentUser.id}/profile`);
+    const user = data.user;
+    const stats = data.stats;
+    const season = getCurrentSeason();
+
+    document.getElementById('profileContent').innerHTML = `
+      <div class="profile-avatar">${user.username.charAt(0).toUpperCase()}</div>
+      <div class="profile-username">${user.username}</div>
+      <div class="profile-city">📍 ${user.city || '未设置城市'} · ${getSeasonEmoji(season)} ${getSeasonName(season)}</div>
+      <div class="profile-section">
+        <div class="profile-section-title">账户信息</div>
+        <div class="profile-item" onclick="openEditCity()">
+          <span class="pi-icon">📍</span><span class="pi-label">所在城市</span>
+          <span class="pi-value">${user.city || '未设置'}</span><span class="pi-arrow">▸</span>
+        </div>
+        <div class="profile-item" onclick="openEditPassword()">
+          <span class="pi-icon">🔐</span><span class="pi-label">修改密码</span>
+          <span class="pi-value">••••••</span><span class="pi-arrow">▸</span>
+        </div>
+      </div>
+      <div class="profile-section">
+        <div class="profile-section-title">养花数据</div>
+        <div class="profile-item" style="cursor:default">
+          <span class="pi-icon">🌺</span><span class="pi-label">我的花卉</span>
+          <span class="pi-value">${stats.flowers} 种</span>
+        </div>
+        <div class="profile-item" style="cursor:default">
+          <span class="pi-icon">💧</span><span class="pi-label">浇水记录</span>
+          <span class="pi-value">${stats.water} 次</span>
+        </div>
+        <div class="profile-item" style="cursor:default">
+          <span class="pi-icon">🧪</span><span class="pi-label">施肥记录</span>
+          <span class="pi-value">${stats.fertilize} 次</span>
+        </div>
+      </div>
+      <div class="profile-section">
+        <div class="profile-section-title">其他</div>
+        <div class="profile-item" onclick="handleLogout(); closeMyProfile();">
+          <span class="pi-icon">🚪</span><span class="pi-label" style="color:var(--danger)">退出登录</span>
+          <span class="pi-arrow">▸</span>
+        </div>
+      </div>`;
+    document.getElementById('profilePage').classList.add('show');
+  } catch (e) {
+    showToast('加载个人信息失败');
+  }
+}
+
+function closeMyProfile() {
+  document.getElementById('profilePage').classList.remove('show');
+}
+
+function openEditCity() {
+  const city = currentUser.city || '';
+  document.getElementById('pemTitle').textContent = '修改城市';
+  document.getElementById('pemBody').innerHTML = `
+    <div class="pem-success" id="pemSuccess">城市修改成功</div>
+    <div class="form-group"><label>所在城市</label><input type="text" id="editCityInput" value="${city}" placeholder="如：南京、北京"></div>
+    <p style="font-size:12px;color:var(--text-light);margin-bottom:16px">设置城市后，系统会根据当地气候自动调整浇水周期提示</p>
+    <button class="auth-submit" onclick="saveCity()">保存</button>`;
+  document.getElementById('profileEditModal').classList.add('show');
+}
+
+async function saveCity() {
+  const city = document.getElementById('editCityInput').value.trim();
+  try {
+    await api(`/api/user/${currentUser.id}/profile`, { method: 'PUT', body: { city } });
+    currentUser.city = city;
+    locationData.city = city || '未知';
+    updateLocationBar();
+    localStorage.setItem('flower_user', JSON.stringify(currentUser));
+    document.getElementById('pemSuccess').style.display = 'block';
+    setTimeout(() => { closeProfileEdit(); showMyProfile(); }, 800);
+  } catch (e) {
+    showToast('保存失败');
+  }
+}
+
+function openEditPassword() {
+  document.getElementById('pemTitle').textContent = '修改密码';
+  document.getElementById('pemBody').innerHTML = `
+    <div class="pem-success" id="pemSuccess">密码修改成功</div>
+    <div class="form-group"><label>当前密码</label><input type="password" id="editOldPass" placeholder="请输入当前密码"></div>
+    <div class="form-group"><label>新密码</label><input type="password" id="editNewPass" placeholder="请输入新密码（至少6位）"></div>
+    <div class="form-group"><label>确认新密码</label><input type="password" id="editNewPass2" placeholder="请再次输入新密码"></div>
+    <div class="auth-error" id="pemError"></div>
+    <button class="auth-submit" onclick="savePassword()">保存</button>`;
+  document.getElementById('profileEditModal').classList.add('show');
+}
+
+async function savePassword() {
+  const oldPass = document.getElementById('editOldPass').value;
+  const newPass = document.getElementById('editNewPass').value;
+  const newPass2 = document.getElementById('editNewPass2').value;
+  if (!oldPass) { showAuthError('pemError', '请输入当前密码'); return; }
+  if (!newPass || newPass.length < 6) { showAuthError('pemError', '新密码至少6位'); return; }
+  if (newPass !== newPass2) { showAuthError('pemError', '两次密码不一致'); return; }
+  try {
+    await api(`/api/user/${currentUser.id}/password`, { method: 'PUT', body: { old_password: oldPass, new_password: newPass } });
+    document.getElementById('pemSuccess').style.display = 'block';
+    setTimeout(() => { closeProfileEdit(); showMyProfile(); }, 800);
+  } catch (e) {
+    showAuthError('pemError', e.message);
+  }
+}
+
+function closeProfileEdit() {
+  document.getElementById('profileEditModal').classList.remove('show');
+}
+
+// ==================== PHOTO LIGHTBOX ====================
+let lightboxFlower = null;
+let lightboxIndex = 0;
+
+function openLightbox(flowerId, index) {
+  const f = allFlowers.find(fl => fl.flower_id === flowerId);
+  if (!f || !f.photos || f.photos.length === 0) return;
+  lightboxFlower = f;
+  lightboxIndex = index;
+  updateLightbox();
+  document.getElementById('lightbox').classList.add('show');
+}
+
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('show');
+}
+
+function lightboxNav(dir) {
+  if (!lightboxFlower || !lightboxFlower.photos) return;
+  lightboxIndex = (lightboxIndex + dir + lightboxFlower.photos.length) % lightboxFlower.photos.length;
+  updateLightbox();
+}
+
+function updateLightbox() {
+  if (!lightboxFlower || !lightboxFlower.photos) return;
+  const img = document.getElementById('lightboxImg');
+  img.src = lightboxFlower.photos[lightboxIndex].replace('w=600&h=400', 'w=800&h=600');
+  const label = (lightboxFlower.photo_labels || [])[lightboxIndex] || '';
+  document.getElementById('lightboxCounter').textContent =
+    (lightboxIndex + 1) + ' / ' + lightboxFlower.photos.length + (label ? ' · ' + label : '');
+}
+
+// ==================== UTILITY ====================
+function updateBadge() {
+  const count = _myFlowerIds.length;
+  const badge = document.getElementById('myBadge');
+  if (count > 0) { badge.textContent = count; badge.style.display = ''; }
+  else { badge.style.display = 'none'; }
+}
+
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2000);
+}
+
+// ==================== SEARCH (fuzzy query via API) ====================
+let searchTimer = null;
+document.addEventListener('DOMContentLoaded', function() {
+  const searchInput = document.getElementById('searchInput');
+  if (searchInput) {
+    searchInput.addEventListener('input', function() {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(async () => {
+        const q = this.value.trim();
+        if (q) {
+          try {
+            const data = await api('/api/flowers?search=' + encodeURIComponent(q));
+            allFlowers = data.flowers;
+          } catch (e) { /* keep existing */ }
+        } else {
+          try {
+            const data = await api('/api/flowers');
+            allFlowers = data.flowers;
+          } catch (e) { /* keep existing */ }
+        }
+        renderFlowerGrid();
+      }, 300);
+    });
+  }
+});
+
+// ==================== INIT ====================
+(async function init() {
+  const saved = localStorage.getItem('flower_user');
+  if (saved) {
+    try {
+      const user = JSON.parse(saved);
+      // Verify user still exists by calling profile API
+      const data = await api(`/api/user/${user.id}/profile`);
+      currentUser = data.user;
+      enterApp();
+      return;
+    } catch (e) {
+      localStorage.removeItem('flower_user');
+    }
+  }
+  document.getElementById('authPage').classList.add('show');
+  document.getElementById('mainApp').style.display = 'none';
+})();
+</script>
+</body>
+</html>

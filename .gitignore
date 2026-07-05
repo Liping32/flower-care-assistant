@@ -1,0 +1,23 @@
+# Database
+*.db
+
+# Uploaded photos (user data)
+plant_photos/*
+!plant_photos/.gitkeep
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Screenshots and test files
+*.png
+snapshot*.yml
+
+# IDE
+.vscode/
+.idea/

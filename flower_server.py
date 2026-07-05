@@ -1597,4 +1597,4 @@ if __name__ == '__main__':
                     print('提示: 请手动打开浏览器访问 http://localhost:8765')
     threading.Thread(target=open_browser, daemon=True).start()
 
-    app.run(host='0.0.0.0', port=8765, debug=False)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8765)), debug=False)

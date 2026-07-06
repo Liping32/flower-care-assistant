@@ -153,6 +153,17 @@ def init_db():
     except Exception:
         pass
 
+    # 迁移：给 water_plans 表添加 reminder_status 字段（pending/confirmed/kept）
+    try:
+        db.execute('ALTER TABLE water_plans ADD COLUMN reminder_status TEXT DEFAULT "pending"')
+    except Exception:
+        pass
+    # 迁移：给 water_plans 表添加 reminder_updated 字段
+    try:
+        db.execute('ALTER TABLE water_plans ADD COLUMN reminder_updated TEXT')
+    except Exception:
+        pass
+
     db.commit()
 
     # 初始化花卉知识数据（仅在表为空时）
@@ -722,80 +733,138 @@ def get_care_logs(user_id):
 # ---------- Reminders ----------
 @app.route('/api/user/<int:user_id>/reminders', methods=['GET'])
 def get_reminders(user_id):
+    """基于植株浇水计划的提醒：提前2/1/0天提醒，过期每日提醒，支持确认/保持"""
     db = get_db()
-    # Get user city for climate adjustment
+    today = datetime.now().strftime('%Y-%m-%d')
+    today_dt = datetime.now().date()
+
+    reminders = []
+
+    # 获取用户所有植株及其下一个 pending 的浇水计划
+    plants = db.execute('''
+        SELECT mp.id as plant_id, mp.plant_name, mp.photo as plant_photo,
+               mp.flower_id, fk.name as flower_name, fk.emoji, fk.photo
+        FROM my_plants mp
+        JOIN flower_knowledge fk ON mp.flower_id = fk.flower_id
+        WHERE mp.user_id=?
+        ORDER BY mp.created_at
+    ''', (user_id,)).fetchall()
+
+    for p in plants:
+        # 找到该植株最近的一个 pending 计划
+        next_plan = db.execute('''
+            SELECT id, plan_date, status, reminder_status, reminder_updated
+            FROM water_plans
+            WHERE plant_id=? AND status='pending'
+            ORDER BY plan_date ASC
+            LIMIT 1
+        ''', (p['plant_id'],)).fetchone()
+
+        if not next_plan:
+            continue
+
+        plan_date = datetime.strptime(next_plan['plan_date'], '%Y-%m-%d').date()
+        days_until = (plan_date - today_dt).days
+        reminder_status = next_plan['reminder_status'] or 'pending'
+
+        # 如果已确认，跳过该提醒（本周期不再提醒）
+        if reminder_status == 'confirmed':
+            continue
+
+        # 构建提醒信息
+        plant_display = p['plant_name'] or p['flower_name']
+        item = {
+            'plant_id': p['plant_id'],
+            'plan_id': next_plan['id'],
+            'flower_id': p['flower_id'],
+            'name': plant_display,
+            'emoji': p['emoji'],
+            'plant_photo': p['plant_photo'],
+            'flower_photo': p['photo'],
+            'type': 'water',
+            'plan_date': next_plan['plan_date'],
+            'reminder_status': reminder_status,
+        }
+
+        if days_until < 0:
+            item['status'] = 'overdue'
+            item['msg'] = f'已超过浇水日期{abs(days_until)}天'
+            item['days'] = abs(days_until)
+        elif days_until == 0:
+            item['status'] = 'today'
+            item['msg'] = '今天需要浇水'
+            item['days'] = 0
+        elif days_until == 1:
+            item['status'] = 'soon'
+            item['msg'] = '明天需要浇水'
+            item['days'] = 1
+        elif days_until == 2:
+            item['status'] = 'soon'
+            item['msg'] = '后天需要浇水'
+            item['days'] = 2
+        else:
+            # 还早，不显示提醒
+            continue
+
+        reminders.append(item)
+
+    # 保留花卉级施肥提醒（基于 user_flowers 表）
     user = db.execute('SELECT city FROM users WHERE id=?', (user_id,)).fetchone()
     city = user['city'] if user else ''
     zone_id, _ = get_climate_zone(city) if city else ('warm_temp', CLIMATE_ZONES['warm_temp'])
 
-    rows = db.execute('''
-        SELECT uf.flower_id, uf.last_water, uf.last_fertilize, uf.last_repot,
-               fk.name, fk.emoji, fk.photo,
-               fk.spring_water, fk.summer_water, fk.autumn_water, fk.winter_water,
+    flower_rows = db.execute('''
+        SELECT uf.flower_id, uf.last_fertilize,
+               fk.name, fk.emoji,
                fk.spring_fertilize, fk.summer_fertilize, fk.autumn_fertilize, fk.winter_fertilize
         FROM user_flowers uf
         JOIN flower_knowledge fk ON uf.flower_id = fk.flower_id
         WHERE uf.user_id=?
     ''', (user_id,)).fetchall()
-    reminders = []
-    from datetime import timedelta
+
     now = datetime.now()
-    for r in rows:
+    for r in flower_rows:
         item = dict(r)
-        # Determine current season
         month = now.month
         if month in (3,4,5): season = 'spring'
         elif month in (6,7,8): season = 'summer'
         elif month in (9,10,11): season = 'autumn'
         else: season = 'winter'
 
-        # Apply climate adjustment
         adj_care = get_adjusted_season_care(item, zone_id, season)
-        water_interval_str = adj_care['water']
         fert_interval_str = adj_care['fertilize']
 
-        # Water reminder
-        wm = re_match(water_interval_str)
-        if wm and '停' not in water_interval_str and '不需' not in water_interval_str:
-            water_interval = wm
-            if item['last_water']:
-                last = datetime.strptime(item['last_water'], '%Y-%m-%d %H:%M:%S')
-                days_since = (now - last).days
-                remaining = water_interval - days_since
-                if remaining <= 0:
-                    reminders.append({'flower_id': item['flower_id'], 'name': item['name'], 'emoji': item['emoji'],
-                                      'type': 'water', 'status': 'overdue', 'msg': f'已超过浇水周期{abs(remaining)}天', 'days': days_since})
-                elif remaining == 0:
-                    reminders.append({'flower_id': item['flower_id'], 'name': item['name'], 'emoji': item['emoji'],
-                                      'type': 'water', 'status': 'today', 'msg': '今天需要浇水', 'days': days_since})
-                elif remaining <= 3:
-                    reminders.append({'flower_id': item['flower_id'], 'name': item['name'], 'emoji': item['emoji'],
-                                      'type': 'water', 'status': 'soon', 'msg': f'{remaining}天后需要浇水', 'days': days_since})
-            else:
+        if '停' in fert_interval_str or '不需' in fert_interval_str:
+            continue
+        fm = re_match(fert_interval_str)
+        if not fm:
+            continue
+
+        fert_interval = fm
+        if item['last_fertilize']:
+            last = datetime.strptime(item['last_fertilize'], '%Y-%m-%d %H:%M:%S')
+            days_since = (now - last).days
+            remaining = fert_interval - days_since
+            if remaining <= 0:
                 reminders.append({'flower_id': item['flower_id'], 'name': item['name'], 'emoji': item['emoji'],
-                                  'type': 'water', 'status': 'overdue', 'msg': '尚未记录浇水', 'days': None})
+                                  'type': 'fertilize', 'status': 'overdue', 'msg': f'已超过施肥周期{abs(remaining)}天', 'days': days_since,
+                                  'plant_id': None, 'plan_id': None, 'reminder_status': None})
+            elif remaining == 0:
+                reminders.append({'flower_id': item['flower_id'], 'name': item['name'], 'emoji': item['emoji'],
+                                  'type': 'fertilize', 'status': 'today', 'msg': '今天需要施肥', 'days': days_since,
+                                  'plant_id': None, 'plan_id': None, 'reminder_status': None})
+        else:
+            reminders.append({'flower_id': item['flower_id'], 'name': item['name'], 'emoji': item['emoji'],
+                              'type': 'fertilize', 'status': 'overdue', 'msg': '尚未记录施肥', 'days': None,
+                              'plant_id': None, 'plan_id': None, 'reminder_status': None})
 
-        # Fertilize reminder
-        if '停' not in fert_interval_str and '不需' not in fert_interval_str:
-            fm = re_match(fert_interval_str)
-            if fm:
-                fert_interval = fm
-                if item['last_fertilize']:
-                    last = datetime.strptime(item['last_fertilize'], '%Y-%m-%d %H:%M:%S')
-                    days_since = (now - last).days
-                    remaining = fert_interval - days_since
-                    if remaining <= 0:
-                        reminders.append({'flower_id': item['flower_id'], 'name': item['name'], 'emoji': item['emoji'],
-                                          'type': 'fertilize', 'status': 'overdue', 'msg': f'已超过施肥周期{abs(remaining)}天', 'days': days_since})
-                    elif remaining == 0:
-                        reminders.append({'flower_id': item['flower_id'], 'name': item['name'], 'emoji': item['emoji'],
-                                          'type': 'fertilize', 'status': 'today', 'msg': '今天需要施肥', 'days': days_since})
-                else:
-                    reminders.append({'flower_id': item['flower_id'], 'name': item['name'], 'emoji': item['emoji'],
-                                      'type': 'fertilize', 'status': 'overdue', 'msg': '尚未记录施肥', 'days': None})
+    # 排序：overdue + kept > overdue > today > soon
+    def sort_key(x):
+        status_order = {'overdue': 0, 'today': 1, 'soon': 2}
+        kept_boost = -1 if x.get('reminder_status') == 'kept' else 0
+        return (status_order.get(x['status'], 3) + kept_boost, x.get('days', 999))
+    reminders.sort(key=sort_key)
 
-    # Sort: overdue first
-    reminders.sort(key=lambda x: {'overdue':0,'today':1,'soon':2}.get(x['status'],3))
     return jsonify({'reminders': reminders})
 
 def re_match(s):
@@ -1052,13 +1121,13 @@ def get_water_plans(user_id, plant_id):
 
     if status_filter:
         rows = db.execute('''
-            SELECT id, plan_date, status, actual_date, notes, created_at
+            SELECT id, plan_date, status, actual_date, notes, created_at, reminder_status, reminder_updated
             FROM water_plans WHERE plant_id=? AND status=?
             ORDER BY plan_date
         ''', (plant_id, status_filter)).fetchall()
     else:
         rows = db.execute('''
-            SELECT id, plan_date, status, actual_date, notes, created_at
+            SELECT id, plan_date, status, actual_date, notes, created_at, reminder_status, reminder_updated
             FROM water_plans WHERE plant_id=?
             ORDER BY plan_date
         ''', (plant_id,)).fetchall()
@@ -1105,6 +1174,42 @@ def skip_water_plan(user_id, plan_id):
     db.execute('UPDATE water_plans SET status=?, actual_date=? WHERE id=?', ('skipped', now_str, plan_id))
     db.commit()
     return jsonify({'success': True})
+
+@app.route('/api/user/<int:user_id>/water-plans/<int:plan_id>/confirm', methods=['POST'])
+def confirm_water_plan(user_id, plan_id):
+    """确认浇水提醒：本周期不再提醒"""
+    db = get_db()
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    plan = db.execute('''
+        SELECT wp.id, wp.plant_id, mp.user_id
+        FROM water_plans wp JOIN my_plants mp ON wp.plant_id = mp.id
+        WHERE wp.id=? AND mp.user_id=?
+    ''', (plan_id, user_id)).fetchone()
+    if not plan:
+        return jsonify({'error': '计划不存在'}), 404
+
+    db.execute('UPDATE water_plans SET reminder_status=?, reminder_updated=? WHERE id=?',
+               ('confirmed', now_str, plan_id))
+    db.commit()
+    return jsonify({'success': True, 'reminder_status': 'confirmed'})
+
+@app.route('/api/user/<int:user_id>/water-plans/<int:plan_id>/keep', methods=['POST'])
+def keep_water_plan(user_id, plan_id):
+    """保持提醒：继续显示该提醒"""
+    db = get_db()
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    plan = db.execute('''
+        SELECT wp.id, wp.plant_id, mp.user_id
+        FROM water_plans wp JOIN my_plants mp ON wp.plant_id = mp.id
+        WHERE wp.id=? AND mp.user_id=?
+    ''', (plan_id, user_id)).fetchone()
+    if not plan:
+        return jsonify({'error': '计划不存在'}), 404
+
+    db.execute('UPDATE water_plans SET reminder_status=?, reminder_updated=? WHERE id=?',
+               ('kept', now_str, plan_id))
+    db.commit()
+    return jsonify({'success': True, 'reminder_status': 'kept'})
 
 @app.route('/api/user/<int:user_id>/plants/<int:plant_id>/water-plans/regenerate', methods=['POST'])
 def regenerate_water_plans(user_id, plant_id):

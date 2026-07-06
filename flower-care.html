@@ -392,10 +392,12 @@ body {
 }
 .reminder-card.overdue { background: #fff3e0; }
 .reminder-card.today { background: #e8f5e9; }
+.reminder-card.soon { background: #e3f2fd; }
 .reminder-icon { font-size: 18px; }
 .reminder-text { flex: 1; }
 .reminder-text .rt-label { font-weight: 500; }
 .reminder-text .rt-days { font-size: 11px; color: var(--text-light); }
+.reminder-actions { display: flex; gap: 4px; flex-shrink: 0; }
 .reminder-action {
   padding: 4px 10px;
   border-radius: 14px;
@@ -404,6 +406,24 @@ body {
   cursor: pointer;
   background: var(--primary-light);
   color: white;
+}
+.reminder-btn-confirm {
+  padding: 3px 8px;
+  border-radius: 12px;
+  border: 1px solid #4caf50;
+  font-size: 11px;
+  cursor: pointer;
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+.reminder-btn-keep {
+  padding: 3px 8px;
+  border-radius: 12px;
+  border: 1px solid #ff9800;
+  font-size: 11px;
+  cursor: pointer;
+  background: #fff3e0;
+  color: #e65100;
 }
 
 /* Auth Page */
@@ -2059,12 +2079,12 @@ async function renderReminders() {
     const reminders = data.reminders;
 
     if (reminders.length === 0) {
-      // Check if user has flowers
-      const myData = await api(`/api/user/${currentUser.id}/flowers`);
-      if (myData.flowers.length === 0) {
+      // Check if user has plants
+      const plantData = await api(`/api/user/${currentUser.id}/plants`);
+      if (plantData.plants.length === 0) {
         container.innerHTML = `
-          <div class="empty-state"><div class="empty-icon">⏰</div><p>添加花卉后即可查看养护提醒</p>
-          <button onclick="switchTab('knowledge')">去选择花卉</button></div>`;
+          <div class="empty-state"><div class="empty-icon">⏰</div><p>添加植株后即可查看养护提醒</p>
+          <button onclick="switchTab('plants')">去添加植株</button></div>`;
       } else {
         container.innerHTML = `
           <div class="empty-state"><div class="empty-icon">✅</div><p>暂无待办提醒，养花做得很好！</p></div>`;
@@ -2074,9 +2094,33 @@ async function renderReminders() {
 
     const icons = { water: '💧', fertilize: '🧪' };
     const labels = { water: '浇水', fertilize: '施肥' };
-    const actionKeys = { water: 'water', fertilize: 'fertilize' };
 
-    container.innerHTML = reminders.map(r => `
+    container.innerHTML = reminders.map(r => {
+      // 植株级浇水提醒（有 plan_id）
+      if (r.type === 'water' && r.plan_id) {
+        const photoSrc = r.plant_photo ? `/plant_photos/${r.plant_photo}` :
+                         r.flower_photo ? `/images/${r.flower_photo}` : '';
+        const photoHtml = photoSrc ? `<img src="${photoSrc}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;">` : '';
+        const keptBadge = r.reminder_status === 'kept' ? '<span style="font-size:10px;background:#fff3e0;color:#e65100;padding:1px 5px;border-radius:8px;margin-left:4px;">保持</span>' : '';
+        return `
+        <div class="my-flower-item" style="margin-bottom:8px">
+          <div class="reminder-card ${r.status}">
+            ${photoHtml}
+            <span class="reminder-icon">${icons[r.type]||''}</span>
+            <div class="reminder-text">
+              <span class="rt-label">${r.emoji||''} ${r.name} · ${labels[r.type]||r.type}${keptBadge}</span><br>
+              <span class="rt-days">${r.msg}</span>
+            </div>
+            <div class="reminder-actions">
+              <button class="reminder-btn-confirm" onclick="confirmReminder(${r.plan_id})">确认</button>
+              <button class="reminder-btn-keep" onclick="keepReminder(${r.plan_id})">保持</button>
+              <button class="reminder-action" onclick="completeWaterPlan(${r.plan_id})">已浇</button>
+            </div>
+          </div>
+        </div>`;
+      }
+      // 花卉级施肥提醒（旧逻辑，无 plan_id）
+      return `
       <div class="my-flower-item" style="margin-bottom:8px">
         <div class="reminder-card ${r.status}">
           <span class="reminder-icon">${icons[r.type]||''}</span>
@@ -2084,12 +2128,39 @@ async function renderReminders() {
             <span class="rt-label">${r.emoji||''} ${r.name} · ${labels[r.type]||r.type}</span><br>
             <span class="rt-days">${r.msg}${r.days !== null ? '（上次' + r.days + '天前）' : ''}</span>
           </div>
-          <button class="reminder-action" onclick="recordAction('${r.flower_id}','${actionKeys[r.type]}')">${labels[r.type]||r.type}</button>
+          <button class="reminder-action" onclick="recordAction('${r.flower_id}','fertilize')">${labels[r.type]||r.type}</button>
         </div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   } catch (e) {
     container.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>加载失败: ${e.message}</p></div>`;
+  }
+}
+
+async function confirmReminder(planId) {
+  try {
+    await api(`/api/user/${currentUser.id}/water-plans/${planId}/confirm`, { method: 'POST' });
+    renderReminders();
+  } catch (e) {
+    alert('操作失败: ' + e.message);
+  }
+}
+
+async function keepReminder(planId) {
+  try {
+    await api(`/api/user/${currentUser.id}/water-plans/${planId}/keep`, { method: 'POST' });
+    renderReminders();
+  } catch (e) {
+    alert('操作失败: ' + e.message);
+  }
+}
+
+async function completeWaterPlan(planId) {
+  try {
+    await api(`/api/user/${currentUser.id}/water-plans/${planId}/complete`, { method: 'POST' });
+    renderReminders();
+  } catch (e) {
+    alert('操作失败: ' + e.message);
   }
 }
 

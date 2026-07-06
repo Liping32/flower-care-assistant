@@ -164,9 +164,19 @@ def init_db():
     except Exception:
         pass
 
-    db.commit()
+    # 用户花卉显示配置表（控制养花知识栏目中花卉的可见性和排序）
+    db.execute('''CREATE TABLE IF NOT EXISTS user_flower_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        flower_id TEXT NOT NULL,
+        visible INTEGER DEFAULT 1,
+        sort_order INTEGER DEFAULT 0,
+        UNIQUE(user_id, flower_id),
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(flower_id) REFERENCES flower_knowledge(flower_id) ON DELETE CASCADE
+    )''')
 
-    # 初始化花卉知识数据（仅在表为空时）
+    db.commit()
     count = db.execute("SELECT COUNT(*) FROM flower_knowledge").fetchone()[0]
     if count == 0:
         init_flower_data(db)
@@ -405,7 +415,7 @@ def init_flower_data(db):
          '7-10天','停止施肥','北方入室保暖0度以上，少浇水',
          '嫁接为主，女贞或小叶女贞作砧木，春季靠接；扦插也可，6-7月进行',
          '3-4年换盆一次，春季进行，修剪老根，新盆加大排水层'),
-         ('hyacinth', '风信子', '💙',
+        ('hyacinth', '风信子', '💙',
          '/images/hyacinth-cover.jpg',
          json.dumps(['/images/hyacinth-closeup.jpg', '/images/hyacinth-full.jpg', '/images/hyacinth-side.jpg']),
          json.dumps(['特写', '全株', '侧景']),
@@ -415,8 +425,8 @@ def init_flower_data(db):
          '不需','花后停止施肥','夏季休眠，叶片枯黄后挖出鳞茎阴凉处存放',
          '种植后浇水','发芽后15天一次液肥','秋末种球，11月下种，冬季生根',
          '少量','不需','鳞茎在土中越冬萌芽，保持微润不积水',
-         '分球繁殖为主，秋季分离侧球另行栽种；也可播种但需3-4年开花',
-         '每年换盆换土，秋季种植时进行，鳞茎顶部露出土面1/3'),
+          '分球繁殖为主，秋季分离侧球另行栽种；也可播种但需3-4年开花',
+          '每年换盆换土，秋季种植时进行，鳞茎顶部露出土面1/3'),
         ('sun_rose', '太阳花', '🌤️',
          '/images/sun_rose-cover.jpg',
          json.dumps(['/images/sun_rose-closeup.jpg', '/images/sun_rose-full.jpg', '/images/sun_rose-side.jpg']),
@@ -427,8 +437,44 @@ def init_flower_data(db):
          '1-2天','不需','耐高温强光，夏季盛花期，见干见湿，忌积水烂根',
          '3-5天','每月一次磷钾肥','花后修剪残花，秋末减少浇水',
          '7-10天','停止施肥','不耐寒，10°C以下入室或作为一年生处理',
-         '扦插极易成活，取5-8cm枝条插入沙土，7天生根；也可播种，春播为主',
-         '每年春季换盆，根系浅用浅盆，排水层要厚'),
+          '扦插极易成活，取5-8cm枝条插入沙土，7天生根；也可播种，春播为主',
+          '每年春季换盆，根系浅用浅盆，排水层要厚'),
+        ('money_tree', '发财树', '💰',
+         '/images/money_tree-cover.jpg',
+         json.dumps(['/images/money_tree-closeup.jpg', '/images/money_tree-full.jpg', '/images/money_tree-side.jpg']),
+         json.dumps(['特写', '全株', '侧景']),
+         '招财吉祥，四季常青，室内旺运',
+         '疏松透气的微酸性土壤，腐叶土+园土+河沙(4:3:3)，忌积水',
+         '7-10天','每月一次稀薄液肥','春季换盆修剪，逐步增加浇水量',
+         '10-15天','不需','夏季生长缓慢忌浓肥，保持通风，避免烈日直射',
+         '7-10天','每月一次复合肥','秋季减少浇水，增施磷钾肥增强抗性',
+         '15-20天','停止施肥','保暖10°C以上，减少浇水，叶片喷水保润',
+         '扦插繁殖，春夏取顶芽插入沙床，保持湿润30天生根；也可播种',
+         '2年换盆一次，春季进行，修剪老根，盆底加厚排水层'),
+        ('snake_plant', '虎皮兰', '🗡️',
+         '/images/snake_plant-cover.jpg',
+         json.dumps(['/images/snake_plant-closeup.jpg', '/images/snake_plant-full.jpg', '/images/snake_plant-side.jpg']),
+         json.dumps(['特写', '全株', '侧景']),
+         '挺拔刚劲，净化空气，懒人最爱',
+         '疏松透气的沙质壤土，园土+河沙+腐叶土(3:4:3)，忌黏重积水',
+         '7-10天','每月一次稀薄液肥','春暖增加光照，可分株繁殖',
+         '10-15天','不需','耐旱耐阴，夏季庇荫，盆土干透再浇，忌积水',
+         '7-10天','每月一次磷钾肥','秋季减少浇水，增加光照',
+         '15-20天','停止施肥','耐阴耐旱，5°C以上可越冬，控水为主',
+         '分株繁殖最简单，春季脱盆分切；叶插也可，取8cm叶段插入沙中',
+         '2-3年换盆一次，春季进行，根系浅用浅盆，排水层要厚'),
+        ('peperomia', '碧玉', '💚',
+         '/images/peperomia-cover.jpg',
+         json.dumps(['/images/peperomia-closeup.jpg', '/images/peperomia-full.jpg', '/images/peperomia-side.jpg']),
+         json.dumps(['特写', '全株', '侧景']),
+         '圆润可爱，碧绿如玉，桌面小清新',
+         '疏松透气的腐殖土，腐叶土+河沙+珍珠岩(4:3:3)，忌积水',
+         '5-7天','每月一次稀薄液肥','春季换盆修剪，分株扦插好时机',
+         '3-5天','不需','夏季忌烈日直射，散射光为主，见干见湿',
+         '5-7天','每月一次复合肥','秋季减少浇水，适当增加光照',
+         '7-10天','停止施肥','保暖10°C以上，控水保微润，叶面可喷水',
+         '叶插为主，取健康叶片带叶柄插入沙中，20天生根；也可分株或茎插',
+         '每年春季换盆，浅盆为佳，保留护心土，排水要好'),
     ]
 
     for f in flowers:
@@ -544,11 +590,53 @@ def change_password(user_id):
     db.commit()
     return jsonify({'success': True})
 
+@app.route('/api/user/<int:user_id>/flower-config', methods=['GET'])
+def get_flower_config(user_id):
+    """获取用户的花卉显示配置，返回所有花卉的可见性和排序"""
+    db = get_db()
+    # 获取所有花卉
+    all_flowers = db.execute("SELECT flower_id, name, emoji FROM flower_knowledge ORDER BY id").fetchall()
+    # 获取用户配置
+    configs = db.execute("SELECT flower_id, visible, sort_order FROM user_flower_config WHERE user_id=?", (user_id,)).fetchall()
+    config_map = {c['flower_id']: dict(c) for c in configs}
+
+    result = []
+    for idx, f in enumerate(all_flowers):
+        cfg = config_map.get(f['flower_id'])
+        result.append({
+            'flower_id': f['flower_id'],
+            'name': f['name'],
+            'emoji': f['emoji'],
+            'visible': cfg['visible'] if cfg else 1,
+            'sort_order': cfg['sort_order'] if cfg else idx,
+        })
+    # 按 sort_order 排序
+    result.sort(key=lambda x: x['sort_order'])
+    return jsonify({'config': result})
+
+@app.route('/api/user/<int:user_id>/flower-config', methods=['PUT'])
+def update_flower_config(user_id):
+    """批量更新用户的花卉显示配置"""
+    data = request.json
+    items = data.get('items', [])
+    db = get_db()
+    for item in items:
+        flower_id = item.get('flower_id')
+        visible = item.get('visible', 1)
+        sort_order = item.get('sort_order', 0)
+        db.execute('''INSERT INTO user_flower_config (user_id, flower_id, visible, sort_order)
+                      VALUES (?, ?, ?, ?)
+                      ON CONFLICT(user_id, flower_id) DO UPDATE SET visible=excluded.visible, sort_order=excluded.sort_order''',
+                   (user_id, flower_id, visible, sort_order))
+    db.commit()
+    return jsonify({'success': True})
+
 # ---------- Flower Knowledge (public) ----------
 @app.route('/api/flowers', methods=['GET'])
 def get_flowers():
-    """获取花卉列表，支持模糊查询"""
+    """获取花卉列表，支持模糊查询和用户配置过滤排序"""
     search = request.args.get('search', '').strip()
+    user_id = request.args.get('user_id', '')
     db = get_db()
     if search:
         rows = db.execute(
@@ -557,6 +645,17 @@ def get_flowers():
         ).fetchall()
     else:
         rows = db.execute("SELECT * FROM flower_knowledge ORDER BY id").fetchall()
+
+    # 获取用户配置（如果提供了 user_id）
+    config_map = {}
+    if user_id:
+        try:
+            uid = int(user_id)
+            configs = db.execute("SELECT flower_id, visible, sort_order FROM user_flower_config WHERE user_id=?", (uid,)).fetchall()
+            config_map = {c['flower_id']: dict(c) for c in configs}
+        except (ValueError, TypeError):
+            pass
+
     result = []
     for r in rows:
         item = dict(r)
@@ -569,7 +668,18 @@ def get_flowers():
             'autumn': {'water': item.pop('autumn_water',''), 'fertilize': item.pop('autumn_fertilize',''), 'tips': item.pop('autumn_tips','')},
             'winter': {'water': item.pop('winter_water',''), 'fertilize': item.pop('winter_fertilize',''), 'tips': item.pop('winter_tips','')}
         }
+        # 应用用户配置
+        cfg = config_map.get(item['flower_id'])
+        item['visible'] = cfg['visible'] if cfg else 1
+        item['sort_order'] = cfg['sort_order'] if cfg else 0
         result.append(item)
+
+    # 按用户配置排序
+    if config_map:
+        result.sort(key=lambda x: x.get('sort_order', 0))
+        # 过滤不可见的花卉
+        result = [f for f in result if f.get('visible', 1) == 1]
+
     return jsonify({'flowers': result})
 
 @app.route('/api/flowers/<flower_id>', methods=['GET'])
@@ -1714,4 +1824,4 @@ if __name__ == '__main__':
                     print('提示: 请手动打开浏览器访问 http://localhost:8765')
     threading.Thread(target=open_browser, daemon=True).start()
 
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8765)), debug=False)
+    app.run(host='0.0.0.0', port=8765, debug=False)

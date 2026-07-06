@@ -747,6 +747,65 @@ body {
   text-align: center;
 }
 
+/* Flower Config */
+.fc-list { list-style: none; padding: 0; margin: 0; }
+.fc-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: default;
+}
+.fc-item:last-child { border-bottom: none; }
+.fc-item .fc-grip {
+  cursor: grab;
+  color: var(--text-light);
+  font-size: 16px;
+  user-select: none;
+  padding: 4px 2px;
+}
+.fc-item.dragging { opacity: 0.5; }
+.fc-item.drag-over { border-top: 2px solid var(--primary); }
+.fc-item .fc-photo {
+  width: 36px; height: 36px; border-radius: 6px; object-fit: cover; flex-shrink: 0;
+}
+.fc-item .fc-emoji {
+  width: 36px; height: 36px; border-radius: 6px; display: flex; align-items: center;
+  justify-content: center; font-size: 22px; background: #f1f8e9; flex-shrink: 0;
+}
+.fc-item .fc-name { flex: 1; font-size: 14px; }
+.toggle-switch {
+  position: relative;
+  width: 42px; height: 24px;
+  flex-shrink: 0;
+}
+.toggle-switch input {
+  opacity: 0; width: 0; height: 0;
+}
+.toggle-slider {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background: #ccc; border-radius: 12px;
+  transition: background 0.25s; cursor: pointer;
+}
+.toggle-slider::before {
+  content: ''; position: absolute; width: 20px; height: 20px;
+  left: 2px; bottom: 2px; background: white; border-radius: 50%;
+  transition: transform 0.25s;
+}
+.toggle-switch input:checked + .toggle-slider { background: var(--primary); }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); }
+.fc-save-bar {
+  margin-top: 20px;
+  display: flex; gap: 10px;
+}
+.fc-save-bar button {
+  flex: 1; padding: 10px; border: none; border-radius: 8px;
+  font-size: 14px; font-weight: 500; cursor: pointer;
+}
+.fc-btn-save { background: var(--primary); color: white; }
+.fc-btn-cancel { background: #f5f5f5; color: var(--text); }
+
 /* Detail photo gallery */
 .detail-photos {
   display: flex;
@@ -1230,31 +1289,9 @@ async function enterApp() {
 
 async function loadFlowers() {
   try {
-    const data = await api('/api/flowers');
+    const url = currentUser ? '/api/flowers?user_id=' + currentUser.id : '/api/flowers';
+    const data = await api(url);
     allFlowers = data.flowers;
-    // Apply saved order
-    let order = null;
-    // Try server order if logged in
-    if (currentUser) {
-      try {
-        const od = await api(`/api/user/${currentUser.id}/flower-order`);
-        if (od.order && od.order.length > 0) order = od.order;
-      } catch(e) {}
-    }
-    // Fallback to localStorage
-    if (!order) {
-      const saved = localStorage.getItem('flower_order');
-      if (saved) { try { order = JSON.parse(saved); } catch(e) {} }
-    }
-    if (order && Array.isArray(order) && order.length > 0) {
-      const ordered = [];
-      const remaining = [...allFlowers];
-      for (const id of order) {
-        const idx = remaining.findIndex(f => f.flower_id === id);
-        if (idx >= 0) ordered.push(remaining.splice(idx, 1)[0]);
-      }
-      allFlowers = [...ordered, ...remaining];
-    }
   } catch (e) {
     console.error('加载花卉失败:', e);
     allFlowers = [];
@@ -1412,9 +1449,17 @@ function setupDragAndDrop(grid, filtered) {
 function saveFlowerOrder() {
   const order = allFlowers.map(f => f.flower_id);
   localStorage.setItem('flower_order', JSON.stringify(order));
-  // Also save to server if logged in
+  // Save to server via flower-config API if logged in
   if (currentUser) {
-    api(`/api/user/${currentUser.id}/flower-order`, { method: 'PUT', body: { order } }).catch(() => {
+    const items = allFlowers.map((f, idx) => ({
+      flower_id: f.flower_id,
+      visible: f.visible !== undefined ? f.visible : 1,
+      sort_order: idx
+    }));
+    api('/api/user/' + currentUser.id + '/flower-config', {
+      method: 'PUT',
+      body: { items }
+    }).catch(() => {
       showToast('排序同步到服务器失败，已保存到本地');
     });
   }
@@ -2245,6 +2290,10 @@ async function showMyProfile() {
       </div>
       <div class="profile-section">
         <div class="profile-section-title">其他</div>
+        <div class="profile-item" onclick="openFlowerConfig()">
+          <span class="pi-icon">🎨</span><span class="pi-label">花卉显示配置</span>
+          <span class="pi-value">管理</span><span class="pi-arrow">▸</span>
+        </div>
         <div class="profile-item" onclick="handleLogout(); closeMyProfile();">
           <span class="pi-icon">🚪</span><span class="pi-label" style="color:var(--danger)">退出登录</span>
           <span class="pi-arrow">▸</span>
@@ -2318,6 +2367,116 @@ function closeProfileEdit() {
   document.getElementById('profileEditModal').classList.remove('show');
 }
 
+// ==================== FLOWER DISPLAY CONFIG ====================
+let _fcItems = []; // local copy for editing
+let _fcDragSrcIdx = null;
+
+async function openFlowerConfig() {
+  if (!currentUser) return;
+  document.getElementById('pemTitle').textContent = '花卉显示配置';
+  try {
+    const data = await api('/api/user/' + currentUser.id + '/flower-config');
+    _fcItems = data.config || [];
+  } catch (e) {
+    showToast('加载配置失败');
+    return;
+  }
+  renderFlowerConfigList();
+  document.getElementById('profileEditModal').classList.add('show');
+}
+
+function renderFlowerConfigList() {
+  const body = document.getElementById('pemBody');
+  const listHtml = _fcItems.map((item, idx) => {
+    const photoHtml = item.photo
+      ? `<img class="fc-photo" src="/images/${item.photo}" onerror="this.outerHTML='<div class=fc-emoji>${item.emoji||"🌿"}</div>'">`
+      : `<div class="fc-emoji">${item.emoji || '🌿'}</div>`;
+    return `
+      <li class="fc-item" data-idx="${idx}" draggable="true">
+        <span class="fc-grip" title="拖拽排序">⠿</span>
+        ${photoHtml}
+        <span class="fc-name">${item.emoji || ''} ${item.name}</span>
+        <label class="toggle-switch">
+          <input type="checkbox" ${item.visible ? 'checked' : ''} data-fid="${item.flower_id}" onchange="fcToggleVisible(this)">
+          <span class="toggle-slider"></span>
+        </label>
+      </li>`;
+  }).join('');
+
+  body.innerHTML = `
+    <p style="font-size:12px;color:var(--text-light);margin-bottom:12px">拖拽调整花卉显示顺序，开关控制是否在知识页面显示</p>
+    <ul class="fc-list" id="fcList">${listHtml}</ul>
+    <div class="fc-save-bar">
+      <button class="fc-btn-cancel" onclick="closeProfileEdit()">取消</button>
+      <button class="fc-btn-save" onclick="saveFlowerConfig()">保存</button>
+    </div>`;
+  setupFcDragAndDrop();
+}
+
+function fcToggleVisible(cb) {
+  const fid = cb.dataset.fid;
+  const item = _fcItems.find(i => i.flower_id === fid);
+  if (item) item.visible = cb.checked ? 1 : 0;
+}
+
+function setupFcDragAndDrop() {
+  const list = document.getElementById('fcList');
+  if (!list) return;
+  const items = list.querySelectorAll('.fc-item');
+  items.forEach(item => {
+    item.addEventListener('dragstart', function(e) {
+      _fcDragSrcIdx = parseInt(this.dataset.idx);
+      this.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    item.addEventListener('dragend', function() {
+      this.classList.remove('dragging');
+      items.forEach(i => i.classList.remove('drag-over'));
+    });
+    item.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      items.forEach(i => i.classList.remove('drag-over'));
+      this.classList.add('drag-over');
+    });
+    item.addEventListener('dragleave', function() {
+      this.classList.remove('drag-over');
+    });
+    item.addEventListener('drop', function(e) {
+      e.preventDefault();
+      this.classList.remove('drag-over');
+      const targetIdx = parseInt(this.dataset.idx);
+      if (_fcDragSrcIdx === null || _fcDragSrcIdx === targetIdx) return;
+      // Reorder _fcItems
+      const moved = _fcItems.splice(_fcDragSrcIdx, 1)[0];
+      _fcItems.splice(targetIdx, 0, moved);
+      renderFlowerConfigList();
+    });
+  });
+}
+
+async function saveFlowerConfig() {
+  if (!currentUser) return;
+  const items = _fcItems.map((item, idx) => ({
+    flower_id: item.flower_id,
+    visible: item.visible,
+    sort_order: idx
+  }));
+  try {
+    await api('/api/user/' + currentUser.id + '/flower-config', {
+      method: 'PUT',
+      body: { items }
+    });
+    showToast('配置已保存');
+    closeProfileEdit();
+    // Reload flowers to apply new config
+    await loadFlowers();
+    renderFlowerGrid();
+  } catch (e) {
+    showToast('保存失败');
+  }
+}
+
 // ==================== PHOTO LIGHTBOX ====================
 let lightboxFlower = null;
 let lightboxIndex = 0;
@@ -2376,13 +2535,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const q = this.value.trim();
         if (q) {
           try {
-            const data = await api('/api/flowers?search=' + encodeURIComponent(q));
+            const url = currentUser ? '/api/flowers?user_id=' + currentUser.id + '&search=' + encodeURIComponent(q) : '/api/flowers?search=' + encodeURIComponent(q);
+            const data = await api(url);
             allFlowers = data.flowers;
           } catch (e) { /* keep existing */ }
         } else {
           try {
-            const data = await api('/api/flowers');
-            allFlowers = data.flowers;
+            await loadFlowers();
           } catch (e) { /* keep existing */ }
         }
         renderFlowerGrid();

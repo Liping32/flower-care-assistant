@@ -648,6 +648,36 @@ body {
   justify-content: center;
   margin: 24px auto 12px;
   box-shadow: 0 4px 12px rgba(46,125,50,0.3);
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+}
+.profile-avatar:active {
+  box-shadow: 0 2px 6px rgba(46,125,50,0.3);
+}
+.profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+.profile-avatar .avatar-camera {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0,0,0,0.4);
+  color: white;
+  font-size: 11px;
+  text-align: center;
+  padding: 2px 0;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.profile-avatar:hover .avatar-camera,
+.profile-avatar:active .avatar-camera {
+  opacity: 1;
 }
 .profile-username {
   text-align: center;
@@ -805,6 +835,7 @@ body {
 }
 .fc-btn-save { background: var(--primary); color: white; }
 .fc-btn-cancel { background: #f5f5f5; color: var(--text); }
+.fc-btn-sort { background: #e8f5e9; color: #2e7d32; }
 
 /* Detail photo gallery */
 .detail-photos {
@@ -1028,6 +1059,7 @@ body {
   <div class="location-bar" id="locationBar">
     <span>📍</span>
     <span id="locationText">定位中...</span>
+    <span id="dateText" style="color:var(--text-light);font-size:13px"></span>
     <span class="season-tag" id="seasonTag">--</span>
   </div>
 
@@ -1328,6 +1360,10 @@ function initLocation() {
 
 function updateLocationBar() {
   document.getElementById('locationText').textContent = '📍 ' + locationData.city;
+  const now = new Date();
+  const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+  const dateStr = `${now.getMonth()+1}/${now.getDate()} 周${weekDays[now.getDay()]}`;
+  document.getElementById('dateText').textContent = dateStr;
   const season = getCurrentSeason();
   document.getElementById('seasonTag').textContent = getSeasonEmoji(season) + ' ' + getSeasonName(season);
 }
@@ -2259,7 +2295,10 @@ async function showMyProfile() {
     const season = getCurrentSeason();
 
     document.getElementById('profileContent').innerHTML = `
-      <div class="profile-avatar">${user.username.charAt(0).toUpperCase()}</div>
+      <div class="profile-avatar" onclick="openAvatarPicker()">
+        ${user.avatar ? `<img src="${user.avatar}" alt="头像">` : user.username.charAt(0).toUpperCase()}
+        <span class="avatar-camera">📷 换头像</span>
+      </div>
       <div class="profile-username">${user.username}</div>
       <div class="profile-city">📍 ${user.city || '未设置城市'} · ${getSeasonEmoji(season)} ${getSeasonName(season)}</div>
       <div class="profile-section">
@@ -2367,6 +2406,83 @@ function closeProfileEdit() {
   document.getElementById('profileEditModal').classList.remove('show');
 }
 
+// ==================== USER AVATAR ====================
+function openAvatarPicker() {
+  if (!currentUser) return;
+  const body = document.getElementById('pemBody');
+  document.getElementById('pemTitle').textContent = '修改头像';
+  body.innerHTML = `
+    <div style="text-align:center;padding:20px 0">
+      <div class="profile-avatar" style="margin:0 auto 16px;pointer-events:none" id="avatarPreview">
+        ${currentUser.avatar ? `<img src="${currentUser.avatar}" alt="头像">` : currentUser.username.charAt(0).toUpperCase()}
+      </div>
+      <p style="font-size:13px;color:var(--text-light);margin-bottom:20px">选择新的头像图片</p>
+      <div style="display:flex;gap:12px;justify-content:center">
+        <button class="fc-btn-save" style="flex:1;max-width:160px" onclick="pickAvatarCamera()">📷 拍照</button>
+        <button class="fc-btn-sort" style="flex:1;max-width:160px" onclick="pickAvatarGallery()">🖼️ 从相册选择</button>
+      </div>
+      <input type="file" id="avatarCameraInput" accept="image/*" capture="environment" style="display:none" onchange="handleAvatarFile(this)">
+      <input type="file" id="avatarGalleryInput" accept="image/*" style="display:none" onchange="handleAvatarFile(this)">
+    </div>
+    <div class="fc-save-bar" style="margin-top:24px">
+      <button class="fc-btn-cancel" onclick="closeProfileEdit()">取消</button>
+    </div>`;
+  document.getElementById('profileEditModal').classList.add('show');
+}
+
+function pickAvatarCamera() {
+  document.getElementById('avatarCameraInput').click();
+}
+
+function pickAvatarGallery() {
+  document.getElementById('avatarGalleryInput').click();
+}
+
+async function handleAvatarFile(input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+
+  // Validate size (max 5MB)
+  if (file.size > 5 * 1024 * 1024) {
+    showToast('图片不能超过5MB');
+    return;
+  }
+
+  // Show preview
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const preview = document.getElementById('avatarPreview');
+    if (preview) {
+      preview.innerHTML = `<img src="${e.target.result}" alt="预览">`;
+    }
+  };
+  reader.readAsDataURL(file);
+
+  // Upload
+  try {
+    const formData = new FormData();
+    formData.append('photo', file);
+
+    const response = await fetch(`${API}/api/user/${currentUser.id}/avatar`, {
+      method: 'POST',
+      body: formData
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '上传失败');
+
+    currentUser.avatar = data.avatar;
+    localStorage.setItem('flower_user', JSON.stringify(currentUser));
+    showToast('头像更新成功');
+    closeProfileEdit();
+    // Refresh profile page to show new avatar
+    setTimeout(() => showMyProfile(), 300);
+  } catch(e) {
+    showToast(e.message || '头像上传失败');
+  }
+  // Reset input so same file can be selected again
+  input.value = '';
+}
+
 // ==================== FLOWER DISPLAY CONFIG ====================
 let _fcItems = []; // local copy for editing
 let _fcDragSrcIdx = null;
@@ -2408,6 +2524,7 @@ function renderFlowerConfigList() {
     <ul class="fc-list" id="fcList">${listHtml}</ul>
     <div class="fc-save-bar">
       <button class="fc-btn-cancel" onclick="closeProfileEdit()">取消</button>
+      <button class="fc-btn-sort" onclick="fcSortByVisible()">排序</button>
       <button class="fc-btn-save" onclick="saveFlowerConfig()">保存</button>
     </div>`;
   setupFcDragAndDrop();
@@ -2417,6 +2534,13 @@ function fcToggleVisible(cb) {
   const fid = cb.dataset.fid;
   const item = _fcItems.find(i => i.flower_id === fid);
   if (item) item.visible = cb.checked ? 1 : 0;
+}
+
+function fcSortByVisible() {
+  const visibleItems = _fcItems.filter(i => i.visible);
+  const hiddenItems = _fcItems.filter(i => !i.visible);
+  _fcItems = [...visibleItems, ...hiddenItems];
+  renderFlowerConfigList();
 }
 
 function setupFcDragAndDrop() {

@@ -164,6 +164,12 @@ def init_db():
     except Exception:
         pass
 
+    # 迁移：给 users 表添加 avatar 字段
+    try:
+        db.execute('ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ""')
+    except Exception:
+        pass
+
     # 用户花卉显示配置表（控制养花知识栏目中花卉的可见性和排序）
     db.execute('''CREATE TABLE IF NOT EXISTS user_flower_config (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -542,18 +548,18 @@ def login():
     username = data.get('username', '').strip()
     password = data.get('password', '')
     db = get_db()
-    user = db.execute('SELECT id, username, city, password FROM users WHERE username=?', (username,)).fetchone()
+    user = db.execute('SELECT id, username, city, avatar, password FROM users WHERE username=?', (username,)).fetchone()
     if not user:
         return jsonify({'error': '用户不存在'}), 400
     if user['password'] != password:
         return jsonify({'error': '密码错误'}), 400
-    return jsonify({'user': {'id': user['id'], 'username': user['username'], 'city': user['city']}})
+    return jsonify({'user': {'id': user['id'], 'username': user['username'], 'city': user['city'], 'avatar': user.get('avatar', '')}})
 
 # ---------- User Profile ----------
 @app.route('/api/user/<int:user_id>/profile', methods=['GET'])
 def get_profile(user_id):
     db = get_db()
-    user = db.execute('SELECT id, username, city FROM users WHERE id=?', (user_id,)).fetchone()
+    user = db.execute('SELECT id, username, city, avatar FROM users WHERE id=?', (user_id,)).fetchone()
     if not user:
         return jsonify({'error': '用户不存在'}), 404
     flower_count = db.execute('SELECT COUNT(*) FROM user_flowers WHERE user_id=?', (user_id,)).fetchone()[0]
@@ -1619,6 +1625,61 @@ def get_climate():
         'zone_desc': zone_info['desc'],
         'adjust': zone_info['adjust']
     })
+
+
+# ==================== USER AVATAR ====================
+AVATAR_DIR = os.path.join(WORK_DIR, 'avatars')
+
+@app.route('/avatars/<path:filename>')
+def serve_avatar(filename):
+    """提供用户头像文件"""
+    return send_from_directory(AVATAR_DIR, filename)
+
+@app.route('/api/user/<int:user_id>/avatar', methods=['POST'])
+def upload_avatar(user_id):
+    """上传用户头像"""
+    db = get_db()
+    user = db.execute('SELECT id, avatar FROM users WHERE id=?', (user_id,)).fetchone()
+    if not user:
+        return jsonify({'error': '用户不存在'}), 404
+
+    if 'photo' not in request.files:
+        return jsonify({'error': '请选择照片文件'}), 400
+
+    file = request.files['photo']
+    if file.filename == '':
+        return jsonify({'error': '请选择照片文件'}), 400
+
+    # Validate file type
+    allowed_ext = {'.jpg', '.jpeg', '.png', '.webp', '.gif'}
+    _, ext = os.path.splitext(file.filename.lower())
+    if ext not in allowed_ext:
+        return jsonify({'error': '仅支持 JPG/PNG/WebP/GIF 格式'}), 400
+
+    # Ensure directory exists
+    os.makedirs(AVATAR_DIR, exist_ok=True)
+
+    # Delete old avatar file if exists
+    old_avatar = user['avatar'] if 'avatar' in user.keys() else ''
+    if old_avatar:
+        old_path = os.path.join(WORK_DIR, old_avatar.lstrip('/'))
+        if os.path.exists(old_path):
+            try:
+                os.remove(old_path)
+            except Exception:
+                pass
+
+    # Generate unique filename
+    unique_name = f"{user_id}_{uuid.uuid4().hex[:8]}{ext}"
+    save_path = os.path.join(AVATAR_DIR, unique_name)
+    file.save(save_path)
+
+    # Update database
+    avatar_url = f'/avatars/{unique_name}'
+    db.execute('UPDATE users SET avatar=? WHERE id=?', (avatar_url, user_id))
+    db.commit()
+
+    return jsonify({'success': True, 'avatar': avatar_url})
 
 
 # ==================== PLANT PHOTOS & IDENTIFICATION ====================

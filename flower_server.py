@@ -405,7 +405,7 @@ def init_flower_data(db):
          '7-10天','停止施肥','北方入室保暖0度以上，少浇水',
          '嫁接为主，女贞或小叶女贞作砧木，春季靠接；扦插也可，6-7月进行',
          '3-4年换盆一次，春季进行，修剪老根，新盆加大排水层'),
-        ('hyacinth', '风信子', '💙',
+         ('hyacinth', '风信子', '💙',
          '/images/hyacinth-cover.jpg',
          json.dumps(['/images/hyacinth-closeup.jpg', '/images/hyacinth-full.jpg', '/images/hyacinth-side.jpg']),
          json.dumps(['特写', '全株', '侧景']),
@@ -417,6 +417,18 @@ def init_flower_data(db):
          '少量','不需','鳞茎在土中越冬萌芽，保持微润不积水',
          '分球繁殖为主，秋季分离侧球另行栽种；也可播种但需3-4年开花',
          '每年换盆换土，秋季种植时进行，鳞茎顶部露出土面1/3'),
+        ('sun_rose', '太阳花', '🌤️',
+         '/images/sun_rose-cover.jpg',
+         json.dumps(['/images/sun_rose-closeup.jpg', '/images/sun_rose-full.jpg', '/images/sun_rose-side.jpg']),
+         json.dumps(['特写', '全株', '侧景']),
+         '向阳而生，花开灿烂，极易养护',
+         '疏松排水好的沙质壤土，园土+河沙+腐叶土(3:4:3)，忌积水',
+         '3-5天','15天一次稀薄液肥','春季播种或扦插，保证充足阳光促生长',
+         '1-2天','不需','耐高温强光，夏季盛花期，见干见湿，忌积水烂根',
+         '3-5天','每月一次磷钾肥','花后修剪残花，秋末减少浇水',
+         '7-10天','停止施肥','不耐寒，10°C以下入室或作为一年生处理',
+         '扦插极易成活，取5-8cm枝条插入沙土，7天生根；也可播种，春播为主',
+         '每年春季换盆，根系浅用浅盆，排水层要厚'),
     ]
 
     for f in flowers:

@@ -1206,7 +1206,12 @@ async function api(path, options = {}) {
     showServerDownBanner();
     throw new Error('无法连接服务器');
   }
-  const data = await resp.json();
+  let data;
+  try {
+    data = await resp.json();
+  } catch (e) {
+    throw new Error('服务器响应异常(非JSON)');
+  }
   if (!resp.ok) throw new Error(data.error || '请求失败');
   return data;
 }

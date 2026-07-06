@@ -553,7 +553,7 @@ def login():
         return jsonify({'error': '用户不存在'}), 400
     if user['password'] != password:
         return jsonify({'error': '密码错误'}), 400
-    return jsonify({'user': {'id': user['id'], 'username': user['username'], 'city': user['city'], 'avatar': user.get('avatar', '')}})
+    return jsonify({'user': {'id': user['id'], 'username': user['username'], 'city': user['city'], 'avatar': user['avatar'] if 'avatar' in user.keys() else ''}})
 
 # ---------- User Profile ----------
 @app.route('/api/user/<int:user_id>/profile', methods=['GET'])

@@ -941,8 +941,29 @@ body {
 .plant-badge.today { background:#fff3e0; color:#e65100; }
 .plant-badge.ok { background:#e8f5e9; color:#2e7d32; }
 .plant-actions { display:flex; gap:4px; }
-.btn-plant-act { border:none; background:none; cursor:pointer; font-size:14px; padding:2px 4px; opacity:0.6; }
-.btn-plant-act:hover { opacity:1; }
+/* Plant item simplified layout */
+.plant-row1 { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+.plant-row1 img { width:32px; height:32px; border-radius:50%; object-fit:cover; flex-shrink:0; }
+.plant-info { flex:1; min-width:0; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.plant-name { font-size:14px; font-weight:500; color:#333; }
+.plant-date { font-size:11px; color:#999; }
+.btn-plant-edit { border:none; background:none; font-size:16px; cursor:pointer; padding:2px 6px; border-radius:6px; color:#999; flex-shrink:0; }
+.btn-plant-edit:hover { background:#f0f0f0; color:#4caf50; }
+.btn-plant-remove { border:none; background:none; font-size:14px; cursor:pointer; padding:2px 6px; border-radius:6px; color:#999; flex-shrink:0; }
+.btn-plant-remove:hover { background:#f0f0f0; color:#e53935; }
+.plant-row2 { display:flex; align-items:center; gap:10px; padding-left:40px; }
+.plant-last-action { font-size:12px; color:#666; white-space:nowrap; }
+.btn-view-care { border:none; border-radius:12px; padding:2px 12px; font-size:12px; cursor:pointer; background:#4caf50; color:white; margin-left:auto; }
+.btn-view-care:hover { background:#388e3c; }
+
+/* Care sections in plant detail modal */
+.care-section { margin-bottom:14px; border:1px solid #eee; border-radius:10px; padding:10px 12px; }
+.care-section-water { border-left:3px solid #4caf50; }
+.care-section-fertilize { border-left:3px solid #ff9800; }
+.care-section-repot { border-left:3px solid #2196f3; }
+.care-section-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.care-section-title { font-size:13px; font-weight:600; color:#333; }
+.care-section-stats { display:flex; align-items:center; }
 
 /* Water plan timeline */
 .water-timeline { margin-top:6px; }
@@ -1066,7 +1087,8 @@ body {
   <div class="tab-nav">
     <button class="tab-btn active" onclick="switchTab('knowledge')" id="tabKnowledge">📖 养花知识</button>
     <button class="tab-btn" onclick="switchTab('myflowers')" id="tabMyflowers">🌺 我的花卉<span class="badge" id="myBadge" style="display:none">0</span></button>
-    <button class="tab-btn" onclick="switchTab('reminders')" id="tabReminders">⏰ 养护提醒</button>
+    <button class="tab-btn" onclick="switchTab('identify')" id="tabIdentify">🔍 识别</button>
+    <button class="tab-btn" onclick="switchTab('reminders')" id="tabReminders">⏰ 养护提醒<span class="badge" id="reminderBadge" style="display:none">0</span></button>
   </div>
 
   <!-- Knowledge Tab -->
@@ -1131,6 +1153,24 @@ body {
       </div>
       <div class="modal-body" id="plantModalBody"></div>
     </div>
+  </div>
+
+  <!-- Identify Tab -->
+  <div class="tab-content" id="contentIdentify">
+    <div style="margin-bottom:16px;font-size:16px;font-weight:600;">🔍 智能识别</div>
+    <div style="text-align:center;padding:20px 0">
+      <div id="identifyPreview" style="display:none;margin-bottom:12px">
+        <img id="identifyPreviewImg" style="max-width:200px;max-height:200px;border-radius:12px;object-fit:cover">
+      </div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        <label style="display:inline-flex;align-items:center;gap:4px;padding:10px 20px;background:#4caf50;color:white;border-radius:20px;cursor:pointer;font-size:14px">
+          📷 拍照/选照片
+          <input type="file" accept="image/*" capture="environment" id="identifyFileInput" style="display:none" onchange="handleIdentifyPhoto(this)">
+        </label>
+      </div>
+      <div style="margin-top:8px;font-size:12px;color:#999">拍照或从相册选择花卉照片，智能识别品种和养护信息</div>
+    </div>
+    <div id="identifyResultArea"></div>
   </div>
 
   <!-- Reminders Tab -->
@@ -1320,7 +1360,7 @@ async function enterApp() {
   await loadFlowers();
   await renderMyFlowers();  // Populate _myFlowerIds first
   renderFlowerGrid();
-  renderReminders();
+  updateReminderBadge();  // Only update badge count, full render on tab switch
   updateBadge();
 }
 
@@ -1384,6 +1424,9 @@ function switchTab(tab) {
     document.getElementById('tabMyflowers').classList.add('active');
     document.getElementById('contentMyflowers').classList.add('active');
     renderMyFlowers();
+  } else if (tab === 'identify') {
+    document.getElementById('tabIdentify').classList.add('active');
+    document.getElementById('contentIdentify').classList.add('active');
   } else if (tab === 'reminders') {
     document.getElementById('tabReminders').classList.add('active');
     document.getElementById('contentReminders').classList.add('active');
@@ -1626,6 +1669,13 @@ async function addMyFlower(flowerId) {
 async function removeMyFlower(flowerId) {
   if (!currentUser) return;
   try {
+    // 检查该花卉下是否还有植株
+    const pData = await api(`/api/user/${currentUser.id}/plants`);
+    const remaining = (pData.plants || []).filter(p => p.flower_id === flowerId);
+    if (remaining.length > 0) {
+      showToast(`该花卉下还有 ${remaining.length} 棵植株，请先移除所有植株`);
+      return;
+    }
     await api(`/api/user/${currentUser.id}/flowers/${flowerId}`, { method: 'DELETE' });
     _myFlowerIds = _myFlowerIds.filter(id => id !== flowerId);
     renderMyFlowers();
@@ -1648,6 +1698,25 @@ async function recordAction(flowerId, action) {
     showToast(f.name + ' · ' + actionNames[action] + ' 已记录');
     renderMyFlowers();
     renderReminders();
+  } catch (e) {
+    showToast(e.message);
+  }
+}
+
+async function recordPlantCare(plantId, action, plantName, flowerId) {
+  if (!currentUser) return;
+  const actionNames = { water: '浇水', fertilize: '施肥', repot: '换盆' };
+  const actionEmojis = { water: '💧', fertilize: '🧪', repot: '🔄' };
+  try {
+    const data = await api(`/api/user/${currentUser.id}/plants/${plantId}/care`, {
+      method: 'POST',
+      body: { action }
+    });
+    showToast(`${actionEmojis[action]} ${plantName} · ${actionNames[action]} 已记录`);
+    renderMyFlowers();
+    updateReminderBadge();
+    // Refresh the detail modal to show updated plans
+    openPlantDetail(plantId, flowerId, plantName);
   } catch (e) {
     showToast(e.message);
   }
@@ -1695,15 +1764,6 @@ async function renderMyFlowers() {
       const waterChanged = sd.water_original && sd.water && sd.water !== sd.water_original;
       const fertChanged = sd.fertilize_original && sd.fertilize && sd.fertilize !== sd.fertilize_original;
 
-      let waterInterval = 5;
-      const wm = adjWater.match(/(\d+)/);
-      if (wm) waterInterval = parseInt(wm[1]);
-
-      const daysSinceWater = mf.last_water ? Math.floor((Date.now() - new Date(mf.last_water).getTime()) / 86400000) : null;
-      const waterStatus = daysSinceWater === null ? '尚未记录' :
-        daysSinceWater >= waterInterval ? '⚠️ 需要浇水' :
-        '✅ ' + (waterInterval - daysSinceWater) + '天后浇水';
-
       const waterDisplay = waterChanged ? `${adjWater}<span class="climate-adjusted" title="原标准: ${sd.water_original}">🔄</span>` : adjWater;
       const fertDisplay = fertChanged ? `${adjFert}<span class="climate-adjusted" title="原标准: ${sd.fertilize_original}">🔄</span>` : adjFert;
 
@@ -1712,23 +1772,22 @@ async function renderMyFlowers() {
       let plantsHTML = '';
       if (flowerPlants.length > 0) {
         plantsHTML = flowerPlants.map(p => {
-          const intervalDisplay = p.custom_water_days ? `${p.custom_water_days}天 ✏️` : (p.water_interval || '?');
           const thumbHTML = p.photo ? `<img src="${p.photo}" class="plant-thumb" alt="${p.plant_name}" onerror="this.style.display='none'">` : '';
-          const hasIdResult = p.identify_result && p.identify_result.confirmed;
           return `
-          <div class="plant-item" onclick="openPlantDetail(${p.id}, '${mf.flower_id}', '${p.plant_name.replace(/'/g, "\\'")}')">
-            <div class="plant-item-header">
-              <span class="plant-name">${thumbHTML} 🌱 ${p.plant_name}${hasIdResult ? ' ✓' : ''}</span>
-              <div class="plant-badges">
-                <span class="plant-badge ok" title="${p.custom_water_days ? '自定义周期' : '气候调整周期'}">💧 ${intervalDisplay}</span>
+          <div class="plant-item">
+            <div class="plant-row1">
+              ${thumbHTML}
+              <div class="plant-info">
+                <span class="plant-name">${p.plant_name}</span>
+                <span class="plant-date">加入时间：${(p.created_at||'').slice(0,10)}</span>
               </div>
+              <button class="btn-plant-edit" onclick="showPlantEditDialog(${p.id},'${p.plant_name.replace(/'/g, "\\'")}','${(p.created_at||'').slice(0,10)}')">✏️</button>
+              <button class="btn-plant-remove" title="移除" onclick="removePlant(${p.id},'${p.plant_name.replace(/'/g, "\\'")}')">🗑</button>
             </div>
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <span style="font-size:11px;color:#999">点击查看浇水计划 ▸</span>
-              <div class="plant-actions" onclick="event.stopPropagation()">
-                <button class="btn-plant-act" title="改名" onclick="renamePlant(${p.id},'${p.plant_name.replace(/'/g, "\\'")}')">✏️</button>
-                <button class="btn-plant-act" title="删除" onclick="removePlant(${p.id},'${p.plant_name.replace(/'/g, "\\'")}')">🗑</button>
-              </div>
+            <div class="plant-row2">
+              <span class="plant-last-action">最近浇水：${p.last_water_date ? p.last_water_date.slice(5,10) : '未记录'}</span>
+              <span class="plant-last-action">最近施肥：${p.last_fertilize_date ? p.last_fertilize_date.slice(5,10) : '未记录'}</span>
+              <button class="btn-view-care" onclick="openPlantDetail(${p.id}, '${mf.flower_id}', '${p.plant_name.replace(/'/g, "\\'")}')">养护</button>
             </div>
           </div>`;
         }).join('');
@@ -1740,12 +1799,10 @@ async function renderMyFlowers() {
             <div class="my-flower-emoji"><img src="${mf.photo||''}" alt="${mf.name}" onerror="this.parentElement.innerHTML='${mf.emoji||''}'"></div>
             <div class="my-flower-meta">
               <div class="my-flower-name">${mf.name}</div>
-              <div class="my-flower-status">💧 ${waterDisplay}一次 · ${waterStatus}</div>
+              <div class="my-flower-status">💧 ${waterDisplay}一次</div>
               ${adjFert ? `<div class="my-flower-status-sub">🧪 ${fertDisplay}</div>` : ''}
             </div>
             <div class="my-flower-actions" onclick="event.stopPropagation()">
-              <button class="btn-water" onclick="recordAction('${mf.flower_id}','water')">💧浇水</button>
-              <button class="btn-fertilize" onclick="recordAction('${mf.flower_id}','fertilize')">🧪施肥</button>
               <button class="btn-remove" onclick="removeMyFlower('${mf.flower_id}')">移除</button>
             </div>
           </div>
@@ -1792,7 +1849,7 @@ async function confirmAddPlant(flowerId, inputEl) {
       method: 'POST',
       body: { flower_id: flowerId, plant_name: name }
     });
-    showToast(`🌱 植株「${name}」已添加，浇水计划已自动生成`);
+    showToast(`🌱 植株「${name}」已添加，养护计划已自动生成`);
     renderMyFlowers();
   } catch(e) {
     showToast(e.message);
@@ -1801,39 +1858,109 @@ async function confirmAddPlant(flowerId, inputEl) {
 
 async function openPlantDetail(plantId, flowerId, plantName) {
   const modal = document.getElementById('plantModal');
-  document.getElementById('plantModalTitle').textContent = `🌱 ${plantName} · 浇水计划`;
+  document.getElementById('plantModalTitle').textContent = `🌱 ${plantName} · 养护计划`;
   const body = document.getElementById('plantModalBody');
   body.innerHTML = '<div style="text-align:center;padding:20px;color:#999">加载中...</div>';
   modal.style.display = 'flex';
 
   try {
-    // Get plant info (for custom_water_days and default interval)
+    // Get plant info (for custom days and default intervals)
     const pData = await api(`/api/user/${currentUser.id}/plants`);
     const plantInfo = (pData.plants||[]).find(p => p.id === plantId);
-    const customDays = plantInfo ? plantInfo.custom_water_days : null;
-    const defaultInterval = plantInfo ? (plantInfo.water_interval || '?') : '?';
-    const effectiveInterval = plantInfo ? (plantInfo.water_interval_effective || plantInfo.water_interval || '?') : '?';
 
-    const data = await api(`/api/user/${currentUser.id}/plants/${plantId}/water-plans`);
-    const plans = data.plans || [];
     const today = new Date().toISOString().slice(0, 10);
 
-    // Stats
-    const pending = plans.filter(p => p.status === 'pending');
-    const overdue = pending.filter(p => p.plan_date < today);
-    const todayPlans = pending.filter(p => p.plan_date === today);
-    const done = plans.filter(p => p.status === 'done');
-    const skipped = plans.filter(p => p.status === 'skipped');
+    // Helper: build one care-type section
+    async function buildCareSection(ct, emoji, label, defaultInterval, effectiveInterval, customDays, customColName, minVal, maxVal) {
+      const plansData = await api(`/api/user/${currentUser.id}/plants/${plantId}/water-plans?care_type=${ct}`);
+      const plans = plansData.plans || [];
+      const pending = plans.filter(p => p.status === 'pending');
+      const overdue = pending.filter(p => p.plan_date < today);
+      const todayP = pending.filter(p => p.plan_date === today);
+      const done = plans.filter(p => p.status === 'done');
+      const skipped = plans.filter(p => p.status === 'skipped');
 
-    let html = `
-      <!-- Photo area -->
+      let html = `
+        <div class="care-section care-section-${ct}">
+          <div class="care-section-header">
+            <span class="care-section-title">${emoji} ${label}</span>
+            <div class="care-section-stats">
+              <span style="color:#c62828;font-size:12px">${overdue.length}逾期</span>
+              <span style="color:#e65100;font-size:12px;margin-left:6px">${todayP.length}今日</span>
+              <span style="color:#2e7d32;font-size:12px;margin-left:6px">${done.length}完成</span>
+            </div>
+          </div>
+          <!-- Cycle setting -->
+          <div style="background:#f9f9f9;border-radius:8px;padding:8px 10px;margin-bottom:8px">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <span style="font-size:11px;color:#666">默认:</span>
+              <span style="font-size:11px;color:#888">${defaultInterval}</span>
+              <span style="font-size:11px;color:#666;margin-left:6px">自定义:</span>
+              <input type="number" id="${customColName}_${plantId}" min="${minVal}" max="${maxVal}" placeholder="不填则用默认"
+                     value="${customDays || ''}"
+                     style="width:60px;padding:3px 6px;border:1px solid #ddd;border-radius:4px;font-size:12px;text-align:center">
+              <span style="font-size:11px;color:#666">天/次</span>
+              <button onclick="setCustomCareDays(${plantId},'${ct}','${customColName}',${minVal},${maxVal})"
+                      style="background:${ct==='water'?'#4caf50':ct==='fertilize'?'#ff9800':'#2196f3'};color:white;border:none;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer">应用</button>
+              ${customDays ? `<button onclick="clearCustomCareDays(${plantId},'${ct}','${customColName}')"
+                      style="background:#eee;color:#666;border:none;border-radius:4px;padding:3px 6px;font-size:11px;cursor:pointer">恢复默认</button>` : ''}
+            </div>
+            ${customDays ? `<div style="font-size:10px;color:#e65100;margin-top:3px">自定义周期: ${customDays}天/次</div>` :
+              `<div style="font-size:10px;color:#999;margin-top:3px">气候调整周期: ${effectiveInterval}</div>`}
+          </div>`;
+
+      // Plans list (show pending + recent done)
+      const showPlans = [];
+      overdue.forEach(p => showPlans.push({...p, _class: 'overdue', _label: '逾期'}));
+      todayP.forEach(p => showPlans.push({...p, _class: 'today', _label: '今日'}));
+      const upcoming = pending.filter(p => p.plan_date > today).slice(0, 5);
+      upcoming.forEach(p => {
+        const days = Math.ceil((new Date(p.plan_date) - new Date(today)) / 86400000);
+        showPlans.push({...p, _class: 'pending', _label: days + '天后'});
+      });
+      const recentDone = done.sort((a,b) => (b.actual_date||'').localeCompare(a.actual_date||'')).slice(0, 3);
+      recentDone.forEach(p => showPlans.push({...p, _class: 'done', _label: '已完成'}));
+
+      if (showPlans.length === 0) {
+        html += '<div style="text-align:center;color:#bbb;padding:10px;font-size:12px">暂无计划</div>';
+      } else {
+        html += showPlans.map(p => {
+          const dateStr = p.plan_date;
+          const weekday = ['日','一','二','三','四','五','六'][new Date(dateStr).getDay()];
+          return `
+            <div class="water-plan-item ${p._class}">
+              <div>
+                <span class="water-plan-date">${dateStr} 周${weekday}</span>
+                <span style="margin-left:4px;font-size:10px;color:${p._class==='overdue'?'#c62828':p._class==='today'?'#e65100':'#999'}">${p._label}</span>
+              </div>
+              ${p.status === 'pending' ? `
+                <div class="water-plan-actions">
+                  <button class="btn-wp-done" onclick="completePlan(${p.id}, ${plantId}, '${ct}')">✓ ${label}</button>
+                  <button class="btn-wp-skip" onclick="skipPlan(${p.id}, ${plantId}, '${ct}')">跳过</button>
+                </div>
+              ` : p.status === 'done' ? `<span style="font-size:10px;color:#999">${(p.actual_date||'').slice(5,16)}</span>` : ''}
+            </div>`;
+        }).join('');
+      }
+
+      html += `
+          <div style="margin-top:6px">
+            <button class="btn-wp-done" style="padding:3px 10px;font-size:11px" onclick="regenPlans(${plantId},'${ct}')">🔄 重新生成</button>
+            <button style="background:${ct==='water'?'#4caf50':ct==='fertilize'?'#ff9800':'#2196f3'};color:white;border:none;border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer;margin-left:4px"
+                    onclick="recordPlantCare(${plantId},'${ct}','${plantName.replace(/'/g, "\\'")}','${flowerId}')">${emoji} 立即${label}</button>
+          </div>
+        </div>`;
+      return html;
+    }
+
+    // Photo area
+    let photoHTML = `
       <div class="plant-photo-area" id="plantPhotoArea">
         ${plantInfo && plantInfo.photo ? `
           <img src="${plantInfo.photo}" class="plant-photo-large" alt="${plantName}"
                onerror="this.parentElement.innerHTML='<div class=\\'plant-photo-placeholder\\' onclick=\\'triggerPhotoUpload(${plantId})\\'><div class=\\'icon\\'>📷</div><div class=\\'text\\'>点击上传照片</div></div>'">
           <div class="plant-photo-btns">
             <button class="btn-photo-action btn-upload-photo" onclick="triggerPhotoUpload(${plantId})">📷 更换照片</button>
-            <button class="btn-photo-action btn-identify" id="btnIdentify" onclick="identifyPlant(${plantId})" ${!plantInfo.photo ? 'disabled' : ''}>🔍 智能识别</button>
           </div>
         ` : `
           <div class="plant-photo-placeholder" onclick="triggerPhotoUpload(${plantId})">
@@ -1842,96 +1969,198 @@ async function openPlantDetail(plantId, flowerId, plantName) {
           </div>
           <div class="plant-photo-btns" style="display:none" id="photoBtnsHidden">
             <button class="btn-photo-action btn-upload-photo" onclick="triggerPhotoUpload(${plantId})">📷 更换照片</button>
-            <button class="btn-photo-action btn-identify" id="btnIdentify" onclick="identifyPlant(${plantId})" disabled>🔍 智能识别</button>
           </div>
         `}
         <input type="file" id="photoUploadInput" accept="image/*" style="display:none" onchange="handlePhotoUpload(event, ${plantId})">
-      </div>
+      </div>`;
 
-      <!-- Identify result (if exists) -->
-      ${plantInfo && plantInfo.identify_result && plantInfo.identify_result.confirmed ? renderIdentifyResult(plantInfo.identify_result) : ''}
+    // Build water section (simplified: title row + history)
+    const waterDefaultInterval = plantInfo ? (plantInfo.water_interval || '?') : '?';
+    const waterEffectiveInterval = plantInfo ? (plantInfo.water_interval_effective || plantInfo.water_interval || '?') : '?';
+    const waterCustomDays = plantInfo ? plantInfo.custom_water_days : null;
+    const waterLogs = (plantInfo && plantInfo.water_logs) ? plantInfo.water_logs : [];
 
-      <!-- Water cycle setting -->
-      <div style="background:#f5f5f5;border-radius:10px;padding:10px 12px;margin-bottom:12px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:6px;color:#333">⏱ 浇水周期设置</div>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span style="font-size:12px;color:#666">默认:</span>
-          <span style="font-size:12px;color:#888">${defaultInterval}</span>
-          <span style="font-size:12px;color:#666;margin-left:8px">自定义:</span>
-          <input type="number" id="customWaterDays" min="1" max="60" placeholder="不填则用默认"
-                 value="${customDays || ''}"
-                 style="width:70px;padding:4px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;text-align:center">
-          <span style="font-size:12px;color:#666">天/次</span>
-          <button onclick="setCustomWaterDays(${plantId})" style="background:#4caf50;color:white;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">应用</button>
-          ${customDays ? `<button onclick="clearCustomWaterDays(${plantId})" style="background:#eee;color:#666;border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer">恢复默认</button>` : ''}
+    let waterHTML = `
+      <div class="care-section care-section-water">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+          <span class="care-section-title">💧 浇水</span>
+          <span style="font-size:11px;color:#666">默认:${waterDefaultInterval}</span>
+          <span style="font-size:11px;color:#666;margin-left:4px">自定义:</span>
+          <input type="text" id="customWaterDays_${plantId}" placeholder="不填则用默认"
+                 value="${waterCustomDays || ''}"
+                 style="width:40px;padding:2px 4px;border:1px solid #ddd;border-radius:4px;font-size:11px;text-align:center">
+          <span style="font-size:11px;color:#666">天/次</span>
+          <button onclick="setCustomCareDays(${plantId},'water','customWaterDays',1,60)"
+                  style="background:#4caf50;color:white;border:none;border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer">应用</button>
+          ${waterCustomDays ? `<button onclick="clearCustomCareDays(${plantId},'water','customWaterDays')"
+                  style="background:#eee;color:#666;border:none;border-radius:4px;padding:2px 5px;font-size:10px;cursor:pointer">恢复默认</button>` : ''}
+          <button style="background:#4caf50;color:white;border:none;border-radius:12px;padding:3px 10px;font-size:11px;cursor:pointer;margin-left:auto"
+                  onclick="recordPlantCare(${plantId},'water','${plantName.replace(/'/g, "\\'")}','${flowerId}')">浇水</button>
         </div>
-        ${customDays ? `<div style="font-size:11px;color:#e65100;margin-top:4px">当前使用自定义周期: ${customDays}天/次（已忽略季节和气候调整）</div>` : `<div style="font-size:11px;color:#999;margin-top:4px">当前使用气候调整周期: ${effectiveInterval}</div>`}
-      </div>
+        <div style="margin-bottom:8px">`;
 
-      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-        <div style="flex:1;min-width:80px;background:#ffebee;border-radius:8px;padding:8px;text-align:center">
-          <div style="font-size:20px;font-weight:700;color:#c62828">${overdue.length}</div>
-          <div style="font-size:11px;color:#c62828">逾期</div>
-        </div>
-        <div style="flex:1;min-width:80px;background:#fff3e0;border-radius:8px;padding:8px;text-align:center">
-          <div style="font-size:20px;font-weight:700;color:#e65100">${todayPlans.length}</div>
-          <div style="font-size:11px;color:#e65100">今日待浇</div>
-        </div>
-        <div style="flex:1;min-width:80px;background:#e8f5e9;border-radius:8px;padding:8px;text-align:center">
-          <div style="font-size:20px;font-weight:700;color:#2e7d32">${done.length}</div>
-          <div style="font-size:11px;color:#2e7d32">已完成</div>
-        </div>
-        <div style="flex:1;min-width:80px;background:#f5f5f5;border-radius:8px;padding:8px;text-align:center">
-          <div style="font-size:20px;font-weight:700;color:#999">${skipped.length}</div>
-          <div style="font-size:11px;color:#999">已跳过</div>
-        </div>
-      </div>
-      <div style="display:flex;gap:6px;margin-bottom:12px">
-        <button class="btn-wp-done" style="padding:4px 12px;font-size:12px" onclick="regenPlans(${plantId})">🔄 重新生成计划</button>
-        <button style="background:#ff5252;color:white;border:none;border-radius:4px;padding:4px 12px;font-size:12px;cursor:pointer" onclick="deletePlant(${plantId},'${plantName.replace(/'/g, "\\'")}')">🗑 删除植株</button>
-      </div>
-    `;
-
-    // Show pending plans first (overdue + today + upcoming)
-    const showPlans = [];
-    // Overdue
-    overdue.forEach(p => showPlans.push({...p, _class: 'overdue', _label: '逾期'}));
-    // Today
-    todayPlans.forEach(p => showPlans.push({...p, _class: 'today', _label: '今日'}));
-    // Upcoming (next 14 days, pending only)
-    const upcoming = pending.filter(p => p.plan_date > today).slice(0, 14);
-    upcoming.forEach(p => {
-      const days = Math.ceil((new Date(p.plan_date) - new Date(today)) / 86400000);
-      showPlans.push({...p, _class: 'pending', _label: days + '天后'});
-    });
-    // Recent done (last 7)
-    const recentDone = done.sort((a,b) => b.actual_date.localeCompare(a.actual_date)).slice(0, 7);
-    recentDone.forEach(p => showPlans.push({...p, _class: 'done', _label: '已完成'}));
-
-    if (showPlans.length === 0) {
-      html += '<div style="text-align:center;color:#999;padding:20px">暂无浇水计划</div>';
-    } else {
-      html += '<div style="font-size:13px;font-weight:600;margin-bottom:6px;color:#333">📋 浇水计划</div>';
-      html += showPlans.map(p => {
-        const dateStr = p.plan_date;
-        const weekday = ['日','一','二','三','四','五','六'][new Date(dateStr).getDay()];
-        return `
-          <div class="water-plan-item ${p._class}">
+    // Water history (last 3, editable) — styled like plan items
+    waterHTML += `<div style="font-size:11px;color:#999;margin-bottom:4px;text-align:center">浇水历史:</div>`;
+    if (waterLogs.length > 0) {
+      for (let i = 0; i < waterLogs.length; i++) {
+        const wl = waterLogs[i];
+        const dateStr = wl.date ? wl.date.slice(0, 10) : '';
+        const weekday = dateStr ? ['日','一','二','三','四','五','六'][new Date(dateStr).getDay()] : '';
+        let daysLabel = '';
+        if (dateStr) {
+          const diff = Math.floor((new Date(today) - new Date(dateStr)) / 86400000);
+          if (diff === 0) daysLabel = '今天';
+          else if (diff === 1) daysLabel = '1天前';
+          else daysLabel = diff + '天前';
+        }
+        waterHTML += `
+          <div class="water-plan-item" style="position:relative;background:#f5f5f5">
             <div>
               <span class="water-plan-date">${dateStr} 周${weekday}</span>
-              <span style="margin-left:6px;font-size:11px;color:${p._class==='overdue'?'#c62828':p._class==='today'?'#e65100':'#999'}">${p._label}</span>
+              <span style="margin-left:4px;font-size:10px;color:#999">${daysLabel}</span>
             </div>
-            ${p.status === 'pending' ? `
-              <div class="water-plan-actions">
-                <button class="btn-wp-done" onclick="completePlan(${p.id}, ${plantId})">✓ 浇水</button>
-                <button class="btn-wp-skip" onclick="skipPlan(${p.id}, ${plantId})">跳过</button>
-              </div>
-            ` : p.status === 'done' ? `<span style="font-size:11px;color:#999">${(p.actual_date||'').slice(5,16)}</span>` : ''}
+            <span onclick="editCareLogDate(${wl.id})"
+                  style="cursor:pointer;font-size:14px;color:#888;padding:2px 4px" title="修改日期">✏️</span>
+            <input type="date" id="clEdit_${wl.id}" value="${dateStr}"
+                   style="position:absolute;right:8px;top:50%;transform:translateY(-50%);opacity:0;width:1px;height:1px;padding:0;border:0"
+                   onchange="updateCareLogDate(${wl.id}, this.value, ${plantId}, '${plantName.replace(/'/g, "\\'")}', '${flowerId}')">
           </div>`;
-      }).join('');
+      }
+    } else {
+      waterHTML += `<div style="text-align:center;color:#bbb;padding:10px;font-size:12px">暂无浇水记录</div>`;
     }
 
-    body.innerHTML = html;
+    waterHTML += `</div></div>`;
+
+    // Build fertilize section (same layout as water)
+    const fertDefaultInterval = plantInfo ? (plantInfo.fertilize_interval || '?') : '?';
+    const fertEffectiveInterval = plantInfo ? (plantInfo.fertilize_interval_effective || plantInfo.fertilize_interval || '?') : '?';
+    const fertCustomDays = plantInfo ? plantInfo.custom_fertilize_days : null;
+    const fertLogs = (plantInfo && plantInfo.fertilize_logs) ? plantInfo.fertilize_logs : [];
+
+    let fertHTML = `
+      <div class="care-section care-section-fertilize">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+          <span class="care-section-title">🧪 施肥</span>
+          <span style="font-size:11px;color:#666">默认:${fertDefaultInterval}</span>
+          <span style="font-size:11px;color:#666;margin-left:4px">自定义:</span>
+          <input type="text" id="customFertilizeDays_${plantId}" placeholder="不填则用默认"
+                 value="${fertCustomDays || ''}"
+                 style="width:40px;padding:2px 4px;border:1px solid #ddd;border-radius:4px;font-size:11px;text-align:center">
+          <span style="font-size:11px;color:#666">天/次</span>
+          <button onclick="setCustomCareDays(${plantId},'fertilize','customFertilizeDays',1,60)"
+                  style="background:#ff9800;color:white;border:none;border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer">应用</button>
+          ${fertCustomDays ? `<button onclick="clearCustomCareDays(${plantId},'fertilize','customFertilizeDays')"
+                  style="background:#eee;color:#666;border:none;border-radius:4px;padding:2px 5px;font-size:10px;cursor:pointer">恢复默认</button>` : ''}
+          <button style="background:#ff9800;color:white;border:none;border-radius:12px;padding:3px 10px;font-size:11px;cursor:pointer;margin-left:auto"
+                  onclick="recordPlantCare(${plantId},'fertilize','${plantName.replace(/'/g, "\\'")}','${flowerId}')">施肥</button>
+        </div>
+        <div style="font-size:10px;color:#999;margin-bottom:8px">
+          气候调整周期: ${fertEffectiveInterval}
+        </div>`;
+
+    // Fertilize history (last 3, editable) — styled like plan items
+    fertHTML += `<div style="font-size:11px;color:#999;margin-bottom:4px;text-align:center">施肥历史:</div>`;
+    if (fertLogs.length > 0) {
+      for (let i = 0; i < fertLogs.length; i++) {
+        const fl = fertLogs[i];
+        const dateStr = fl.date ? fl.date.slice(0, 10) : '';
+        const weekday = dateStr ? ['日','一','二','三','四','五','六'][new Date(dateStr).getDay()] : '';
+        let daysLabel = '';
+        if (dateStr) {
+          const diff = Math.floor((new Date(today) - new Date(dateStr)) / 86400000);
+          if (diff === 0) daysLabel = '今天';
+          else if (diff === 1) daysLabel = '1天前';
+          else daysLabel = diff + '天前';
+        }
+        fertHTML += `
+          <div class="water-plan-item" style="position:relative;background:#f5f5f5">
+            <div>
+              <span class="water-plan-date">${dateStr} 周${weekday}</span>
+              <span style="margin-left:4px;font-size:10px;color:#999">${daysLabel}</span>
+            </div>
+            <span onclick="editCareLogDate(${fl.id})"
+                  style="cursor:pointer;font-size:14px;color:#888;padding:2px 4px" title="修改日期">✏️</span>
+            <input type="date" id="clEdit_${fl.id}" value="${dateStr}"
+                   style="position:absolute;right:8px;top:50%;transform:translateY(-50%);opacity:0;width:1px;height:1px;padding:0;border:0"
+                   onchange="updateCareLogDate(${fl.id}, this.value, ${plantId}, '${plantName.replace(/'/g, "\\'")}', '${flowerId}')">
+          </div>`;
+      }
+    } else {
+      fertHTML += `<div style="text-align:center;color:#bbb;padding:10px;font-size:12px">暂无施肥记录</div>`;
+    }
+
+    fertHTML += `</div>`;
+
+    // Build repot section (same layout as water)
+    const repotDefaultInterval = plantInfo ? (plantInfo.repot_info || '1年') : '1年';
+    const repotEffectiveInterval = plantInfo ? (plantInfo.repot_interval_effective || plantInfo.repot_info || '1年') : '1年';
+    const repotCustomDays = plantInfo ? plantInfo.custom_repot_days : null;
+    const repotLogs = (plantInfo && plantInfo.repot_logs) ? plantInfo.repot_logs : [];
+
+    let repotHTML = `
+      <div class="care-section care-section-repot">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+          <span class="care-section-title">🔄 换盆</span>
+          <span style="font-size:11px;color:#666">默认:${repotDefaultInterval}</span>
+          <span style="font-size:11px;color:#666;margin-left:4px">自定义:</span>
+          <input type="text" id="customRepotDays_${plantId}" placeholder="不填则用默认"
+                 value="${repotCustomDays || ''}"
+                 style="width:40px;padding:2px 4px;border:1px solid #ddd;border-radius:4px;font-size:11px;text-align:center">
+          <span style="font-size:11px;color:#666">天/次</span>
+          <button onclick="setCustomCareDays(${plantId},'repot','customRepotDays',7,730)"
+                  style="background:#2196f3;color:white;border:none;border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer">应用</button>
+          ${repotCustomDays ? `<button onclick="clearCustomCareDays(${plantId},'repot','customRepotDays')"
+                  style="background:#eee;color:#666;border:none;border-radius:4px;padding:2px 5px;font-size:10px;cursor:pointer">恢复默认</button>` : ''}
+          <button style="background:#2196f3;color:white;border:none;border-radius:12px;padding:3px 10px;font-size:11px;cursor:pointer;margin-left:auto"
+                  onclick="recordPlantCare(${plantId},'repot','${plantName.replace(/'/g, "\\'")}','${flowerId}')">换盆</button>
+        </div>
+        <div style="font-size:10px;color:#999;margin-bottom:8px">
+          气候调整周期: ${repotEffectiveInterval}
+        </div>`;
+
+    // Repot history (last 3, editable) — styled like plan items
+    repotHTML += `<div style="font-size:11px;color:#999;margin-bottom:4px;text-align:center">换盆历史:</div>`;
+    if (repotLogs.length > 0) {
+      for (let i = 0; i < repotLogs.length; i++) {
+        const rl = repotLogs[i];
+        const dateStr = rl.date ? rl.date.slice(0, 10) : '';
+        const weekday = dateStr ? ['日','一','二','三','四','五','六'][new Date(dateStr).getDay()] : '';
+        let daysLabel = '';
+        if (dateStr) {
+          const diff = Math.floor((new Date(today) - new Date(dateStr)) / 86400000);
+          if (diff === 0) daysLabel = '今天';
+          else if (diff === 1) daysLabel = '1天前';
+          else daysLabel = diff + '天前';
+        }
+        repotHTML += `
+          <div class="water-plan-item" style="position:relative;background:#f5f5f5">
+            <div>
+              <span class="water-plan-date">${dateStr} 周${weekday}</span>
+              <span style="margin-left:4px;font-size:10px;color:#999">${daysLabel}</span>
+            </div>
+            <span onclick="editCareLogDate(${rl.id})"
+                  style="cursor:pointer;font-size:14px;color:#888;padding:2px 4px" title="修改日期">✏️</span>
+            <input type="date" id="clEdit_${rl.id}" value="${dateStr}"
+                   style="position:absolute;right:8px;top:50%;transform:translateY(-50%);opacity:0;width:1px;height:1px;padding:0;border:0"
+                   onchange="updateCareLogDate(${rl.id}, this.value, ${plantId}, '${plantName.replace(/'/g, "\\'")}', '${flowerId}')">
+          </div>`;
+      }
+    } else {
+      repotHTML += `<div style="text-align:center;color:#bbb;padding:10px;font-size:12px">暂无换盆记录</div>`;
+    }
+
+    repotHTML += `</div>`;
+
+    body.innerHTML = `
+      ${photoHTML}
+      ${waterHTML}
+      ${fertHTML}
+      ${repotHTML}
+      <div style="display:flex;justify-content:flex-end;margin-top:12px;padding-top:10px;border-top:1px solid #eee">
+        <button style="background:#ff5252;color:white;border:none;border-radius:4px;padding:6px 14px;font-size:12px;cursor:pointer" onclick="deletePlant(${plantId},'${plantName.replace(/'/g, "\\'")}')">🗑 删除植株</button>
+      </div>
+    `;
   } catch(e) {
     body.innerHTML = `<div style="text-align:center;color:#c62828;padding:20px">加载失败: ${e.message}</div>`;
   }
@@ -1941,27 +2170,28 @@ function closePlantModal() {
   document.getElementById('plantModal').style.display = 'none';
 }
 
-async function completePlan(planId, plantId) {
+async function completePlan(planId, plantId, careType) {
   try {
     await api(`/api/user/${currentUser.id}/water-plans/${planId}/complete`, { method: 'POST' });
-    showToast('💧 浇水完成！');
+    const labels = { water: '💧 浇水', fertilize: '🧪 施肥', repot: '🔄 换盆' };
+    showToast(`${labels[careType] || '操作'}完成！`);
     // Refresh modal
-    const modal = document.getElementById('plantModal');
     const title = document.getElementById('plantModalTitle').textContent;
     const nameMatch = title.match(/🌱 (.+?) ·/);
     const plantName = nameMatch ? nameMatch[1] : '';
-    // Get flower_id from plants data
     const pData = await api(`/api/user/${currentUser.id}/plants`);
     const plant = (pData.plants||[]).find(p => p.id === plantId);
     if (plant) openPlantDetail(plantId, plant.flower_id, plantName);
     renderMyFlowers();
+    renderReminders();
   } catch(e) { showToast(e.message); }
 }
 
-async function skipPlan(planId, plantId) {
+async function skipPlan(planId, plantId, careType) {
   try {
     await api(`/api/user/${currentUser.id}/water-plans/${planId}/skip`, { method: 'POST' });
-    showToast('已跳过该次浇水');
+    const labels = { water: '浇水', fertilize: '施肥', repot: '换盆' };
+    showToast(`已跳过该次${labels[careType] || '计划'}`);
     const pData = await api(`/api/user/${currentUser.id}/plants`);
     const plant = (pData.plants||[]).find(p => p.id === plantId);
     const title = document.getElementById('plantModalTitle').textContent;
@@ -1971,10 +2201,14 @@ async function skipPlan(planId, plantId) {
   } catch(e) { showToast(e.message); }
 }
 
-async function regenPlans(plantId) {
+async function regenPlans(plantId, careType) {
   try {
-    await api(`/api/user/${currentUser.id}/plants/${plantId}/water-plans/regenerate`, { method: 'POST' });
-    showToast('🔄 浇水计划已重新生成');
+    await api(`/api/user/${currentUser.id}/plants/${plantId}/water-plans/regenerate`, {
+      method: 'POST',
+      body: { care_type: careType || 'water' }
+    });
+    const labels = { water: '浇水', fertilize: '施肥', repot: '换盆' };
+    showToast(`🔄 ${labels[careType] || '养护'}计划已重新生成`);
     const pData = await api(`/api/user/${currentUser.id}/plants`);
     const plant = (pData.plants||[]).find(p => p.id === plantId);
     const title = document.getElementById('plantModalTitle').textContent;
@@ -1986,7 +2220,7 @@ async function regenPlans(plantId) {
 }
 
 async function deletePlant(plantId, plantName) {
-  if (!confirm(`确定删除植株「${plantName}」及其所有浇水计划吗？`)) return;
+  if (!confirm(`确定删除植株「${plantName}」及其所有养护计划吗？`)) return;
   try {
     await api(`/api/user/${currentUser.id}/plants/${plantId}`, { method: 'DELETE' });
     showToast(`已删除植株「${plantName}」`);
@@ -2009,7 +2243,7 @@ async function renamePlant(plantId, oldName) {
 }
 
 async function removePlant(plantId, plantName) {
-  if (!confirm(`确定删除植株「${plantName}」及其浇水计划吗？`)) return;
+  if (!confirm(`确定删除植株「${plantName}」及其养护计划吗？`)) return;
   try {
     await api(`/api/user/${currentUser.id}/plants/${plantId}`, { method: 'DELETE' });
     showToast(`已删除植株「${plantName}」`);
@@ -2017,20 +2251,100 @@ async function removePlant(plantId, plantName) {
   } catch(e) { showToast(e.message); }
 }
 
-async function setCustomWaterDays(plantId) {
-  const input = document.getElementById('customWaterDays');
-  const val = input.value.trim();
-  if (!val) { showToast('请输入浇水天数'); return; }
-  const days = parseInt(val);
-  if (isNaN(days) || days < 1 || days > 60) { showToast('浇水周期需在1-60天之间'); return; }
+async function updatePlantDate(plantId, dateStr) {
+  if (!dateStr) return;
   try {
     await api(`/api/user/${currentUser.id}/plants/${plantId}`, {
       method: 'PUT',
-      body: { custom_water_days: days }
+      body: { created_at: dateStr }
     });
-    showToast(`✓ 浇水周期已设为 ${days} 天/次，计划已重新生成`);
-    // Refresh modal
-    const modal = document.getElementById('plantModal');
+    showToast('加入时间已更新');
+  } catch(e) { showToast(e.message); }
+}
+
+function showPlantEditDialog(plantId, currentName, currentDate) {
+  // Create overlay
+  const overlay = document.createElement('div');
+  overlay.id = 'plantEditOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:1000;display:flex;align-items:center;justify-content:center';
+  overlay.onclick = (e) => { if (e.target === overlay) { overlay.remove(); } };
+
+  const dialog = document.createElement('div');
+  dialog.style.cssText = 'background:#fff;border-radius:12px;padding:20px;width:90%;max-width:320px;box-shadow:0 4px 20px rgba(0,0,0,0.15)';
+  dialog.innerHTML = `
+    <div style="font-size:16px;font-weight:bold;margin-bottom:16px;color:#333">修改植株信息</div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;font-size:13px;color:#666;margin-bottom:4px">植株名称</label>
+      <input id="editPlantNameInput" type="text" value="${currentName.replace(/"/g, '&quot;')}" maxlength="20"
+             style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
+    </div>
+    <div style="margin-bottom:16px">
+      <label style="display:block;font-size:13px;color:#666;margin-bottom:4px">加入时间</label>
+      <input id="editPlantDateInput" type="date" value="${currentDate}"
+             style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button id="editPlantCancelBtn" style="padding:8px 20px;border:1px solid #ddd;border-radius:8px;background:#fff;font-size:14px;cursor:pointer;color:#666">取消</button>
+      <button id="editPlantSaveBtn" style="padding:8px 20px;border:none;border-radius:8px;background:#4caf50;color:#fff;font-size:14px;cursor:pointer;font-weight:bold">保存</button>
+    </div>
+  `;
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+  document.getElementById('editPlantNameInput').focus();
+
+  document.getElementById('editPlantCancelBtn').onclick = () => overlay.remove();
+  document.getElementById('editPlantSaveBtn').onclick = async () => {
+    const newName = document.getElementById('editPlantNameInput').value.trim();
+    const newDate = document.getElementById('editPlantDateInput').value;
+    if (!newName) { showToast('名称不能为空'); return; }
+    try {
+      const body = {};
+      if (newName !== currentName) body.plant_name = newName;
+      if (newDate !== currentDate) body.created_at = newDate;
+      if (Object.keys(body).length === 0) { overlay.remove(); return; }
+      await api(`/api/user/${currentUser.id}/plants/${plantId}`, {
+        method: 'PUT',
+        body
+      });
+      showToast('修改已保存');
+      overlay.remove();
+      renderMyFlowers();
+    } catch(e) { showToast(e.message); }
+  };
+}
+
+function editCareLogDate(logId) {
+  const input = document.getElementById(`clEdit_${logId}`);
+  if (input) input.showPicker ? input.showPicker() : input.click();
+}
+
+async function updateCareLogDate(logId, newDate, plantId, plantName, flowerId) {
+  if (!currentUser || !newDate) return;
+  try {
+    await api(`/api/user/${currentUser.id}/care-logs/${logId}`, {
+      method: 'PUT',
+      body: { date: newDate }
+    });
+    showToast('浇水日期已修改');
+    openPlantDetail(plantId, flowerId, plantName);
+    renderMyFlowers();
+  } catch(e) { showToast(e.message); }
+}
+
+async function setCustomCareDays(plantId, careType, colName, minVal, maxVal) {
+  const input = document.getElementById(`${colName}_${plantId}`);
+  const val = input.value.trim();
+  if (!val) { showToast('请输入天数'); return; }
+  const days = parseInt(val);
+  const labels = { water: '浇水', fertilize: '施肥', repot: '换盆' };
+  if (isNaN(days) || days < minVal || days > maxVal) { showToast(`${labels[careType]}周期需在${minVal}-${maxVal}天之间`); return; }
+  const dbColName = 'custom_' + careType + '_days'; // e.g. custom_water_days
+  try {
+    await api(`/api/user/${currentUser.id}/plants/${plantId}`, {
+      method: 'PUT',
+      body: { [dbColName]: days }
+    });
+    showToast(`✓ ${labels[careType]}周期已设为 ${days} 天/次，计划已重新生成`);
     const title = document.getElementById('plantModalTitle').textContent;
     const nameMatch = title.match(/🌱 (.+?) ·/);
     const plantName = nameMatch ? nameMatch[1] : '';
@@ -2041,14 +2355,15 @@ async function setCustomWaterDays(plantId) {
   } catch(e) { showToast(e.message); }
 }
 
-async function clearCustomWaterDays(plantId) {
+async function clearCustomCareDays(plantId, careType, colName) {
+  const dbColName = 'custom_' + careType + '_days';
   try {
     await api(`/api/user/${currentUser.id}/plants/${plantId}`, {
       method: 'PUT',
-      body: { custom_water_days: null }
+      body: { [dbColName]: null }
     });
-    showToast('✓ 已恢复默认浇水周期，计划已重新生成');
-    const modal = document.getElementById('plantModal');
+    const labels = { water: '浇水', fertilize: '施肥', repot: '换盆' };
+    showToast(`✓ 已恢复默认${labels[careType]}周期，计划已重新生成`);
     const title = document.getElementById('plantModalTitle').textContent;
     const nameMatch = title.match(/🌱 (.+?) ·/);
     const plantName = nameMatch ? nameMatch[1] : '';
@@ -2058,6 +2373,10 @@ async function clearCustomWaterDays(plantId) {
     renderMyFlowers();
   } catch(e) { showToast(e.message); }
 }
+
+// Backward compatible wrappers
+async function setCustomWaterDays(plantId) { return setCustomCareDays(plantId, 'water', 'customWaterDays', 1, 60); }
+async function clearCustomWaterDays(plantId) { return clearCustomCareDays(plantId, 'water', 'customWaterDays'); }
 
 // ==================== PLANT PHOTO & IDENTIFICATION ====================
 function triggerPhotoUpload(plantId) {
@@ -2105,6 +2424,95 @@ async function handlePhotoUpload(event, plantId) {
     photoArea.innerHTML = originalHTML;
   }
   event.target.value = '';
+}
+
+async function handleIdentifyPhoto(input) {
+  if (!currentUser || !input.files || !input.files[0]) return;
+  const file = input.files[0];
+
+  // Show preview
+  const preview = document.getElementById('identifyPreview');
+  const previewImg = document.getElementById('identifyPreviewImg');
+  const resultArea = document.getElementById('identifyResultArea');
+  resultArea.innerHTML = '<div style="text-align:center;padding:20px;color:#999">🔍 识别中...</div>';
+
+  const reader = new FileReader();
+  reader.onload = (e) => { previewImg.src = e.target.result; preview.style.display = ''; };
+  reader.readAsDataURL(file);
+
+  // Upload and identify
+  try {
+    const formData = new FormData();
+    formData.append('photo', file);
+    const resp = await fetch(`/api/user/${currentUser.id}/identify-photo`, {
+      method: 'POST',
+      body: formData
+    });
+    const data = await resp.json();
+    if (data.error) { resultArea.innerHTML = `<div style="color:red;padding:10px">${data.error}</div>`; return; }
+    if (data.result) {
+      renderIdentifyPageResult(data.result);
+    }
+  } catch(e) {
+    resultArea.innerHTML = `<div style="color:red;padding:10px">识别失败: ${e.message}</div>`;
+  }
+  // Reset file input so same file can be re-selected
+  input.value = '';
+}
+
+function renderIdentifyPageResult(result) {
+  const resultArea = document.getElementById('identifyResultArea');
+  const suggestions = (result.health_suggestions || []).map(s =>
+    `<div style="font-size:12px;color:#555;line-height:1.6">• ${s}</div>`
+  ).join('');
+
+  const addActionHTML = result.already_added
+    ? '<div style="margin-top:12px;font-size:12px;color:#999">✓ 该花卉已在你的养花知识中</div>'
+    : `<button id="btnAddIdentified" onclick="addIdentifiedFlower('${result.flower_id}')" style="margin-top:12px;padding:8px 20px;background:#4caf50;color:white;border:none;border-radius:20px;font-size:14px;cursor:pointer">+ 加入养花知识</button>`;
+
+  resultArea.innerHTML = `
+    <div class="identify-result">
+      <h4>🔍 识别结果</h4>
+      <div style="font-size:14px;margin-bottom:8px">${result.emoji || ''} ${result.name}</div>
+      <div style="font-size:12px;color:#666;margin-bottom:6px">${result.description || ''}</div>
+      <div style="background:#f9f9f9;border-radius:8px;padding:10px;margin-bottom:8px">
+        <div style="font-size:12px;color:#555"><strong>土壤:</strong> ${result.soil || ''}</div>
+        <div style="font-size:12px;color:#555;margin-top:4px"><strong>换盆:</strong> ${result.repot || ''}</div>
+        ${result.grafting ? `<div style="font-size:12px;color:#555;margin-top:4px"><strong>嫁接:</strong> ${result.grafting}</div>` : ''}
+      </div>
+      <div style="background:#f0f7f0;border-radius:8px;padding:10px;margin-bottom:8px;border-left:3px solid #4caf50">
+        <div style="font-size:13px;font-weight:600;color:#333;margin-bottom:4px">${result.current_season}养护</div>
+        <div style="font-size:12px;color:#555">💧 浇水: ${result.care_advice?.water || ''}</div>
+        <div style="font-size:12px;color:#555">🧪 施肥: ${result.care_advice?.fertilize || ''}</div>
+        ${result.care_advice?.tips ? `<div style="font-size:12px;color:#555">💡 ${result.care_advice.tips}</div>` : ''}
+      </div>
+      ${suggestions ? `<div style="background:#fff8e1;border-radius:8px;padding:10px;margin-bottom:8px;border-left:3px solid #ff9800"><div style="font-size:13px;font-weight:600;color:#333;margin-bottom:4px">健康建议</div>${suggestions}</div>` : ''}
+      <div style="font-size:11px;color:#999">📍 ${result.zone_info?.city || ''} · ${result.zone_info?.zone_name || ''}气候区</div>
+      ${addActionHTML}
+    </div>`;
+}
+
+async function addIdentifiedFlower(flowerId) {
+  if (!currentUser) return;
+  try {
+    await api(`/api/user/${currentUser.id}/flowers/${flowerId}`, {
+      method: 'POST'
+    });
+    showToast('已加入养花知识');
+    document.getElementById('btnAddIdentified')?.remove();
+    // Show "already added" text
+    const resultArea = document.getElementById('identifyResultArea');
+    const addArea = resultArea.querySelector('.identify-result');
+    if (addArea) {
+      const div = document.createElement('div');
+      div.style.cssText = 'margin-top:12px;font-size:12px;color:#999';
+      div.textContent = '✓ 该花卉已在你的养花知识中';
+      addArea.appendChild(div);
+    }
+    renderMyFlowers();
+    renderFlowerGrid();
+    updateBadge();
+  } catch(e) { showToast(e.message); }
 }
 
 async function identifyPlant(plantId) {
@@ -2157,12 +2565,28 @@ function renderIdentifyResult(result) {
 }
 
 // ==================== REMINDERS ====================
+async function updateReminderBadge() {
+  if (!currentUser) return;
+  try {
+    const data = await api(`/api/user/${currentUser.id}/reminders`);
+    const count = data.count || data.reminders.length;
+    const badge = document.getElementById('reminderBadge');
+    if (count > 0) { badge.textContent = count; badge.style.display = ''; }
+    else { badge.style.display = 'none'; }
+  } catch (e) { /* ignore */ }
+}
+
 async function renderReminders() {
   const container = document.getElementById('reminderList');
   if (!currentUser) return;
   try {
     const data = await api(`/api/user/${currentUser.id}/reminders`);
     const reminders = data.reminders;
+
+    // Update reminder badge on tab
+    const reminderBadge = document.getElementById('reminderBadge');
+    if (reminders.length > 0) { reminderBadge.textContent = reminders.length; reminderBadge.style.display = ''; }
+    else { reminderBadge.style.display = 'none'; }
 
     if (reminders.length === 0) {
       // Check if user has plants
@@ -2178,43 +2602,49 @@ async function renderReminders() {
       return;
     }
 
-    const icons = { water: '💧', fertilize: '🧪' };
-    const labels = { water: '浇水', fertilize: '施肥' };
+    const icons = { water: '💧', fertilize: '🧪', repot: '🔄' };
+    const labels = { water: '浇水', fertilize: '施肥', repot: '换盆' };
 
     container.innerHTML = reminders.map(r => {
-      // 植株级浇水提醒（有 plan_id）
-      if (r.type === 'water' && r.plan_id) {
-        const photoSrc = r.plant_photo ? `/plant_photos/${r.plant_photo}` :
-                         r.flower_photo ? `/images/${r.flower_photo}` : '';
-        const photoHtml = photoSrc ? `<img src="${photoSrc}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;">` : '';
-        const keptBadge = r.reminder_status === 'kept' ? '<span style="font-size:10px;background:#fff3e0;color:#e65100;padding:1px 5px;border-radius:8px;margin-left:4px;">保持</span>' : '';
+      const photoSrc = r.plant_photo ? `/plant_photos/${r.plant_photo}` :
+                       r.flower_photo ? `/images/${r.flower_photo}` : '';
+      const photoHtml = photoSrc ? `<img src="${photoSrc}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;">` : '';
+      const keptBadge = r.reminder_status === 'kept' ? '<span style="font-size:10px;background:#fff3e0;color:#e65100;padding:1px 5px;border-radius:8px;margin-left:4px;">保持</span>' : '';
+
+      // All reminders are now plant-level with plan_id
+      const actionLabel = labels[r.type] || r.type;
+      const actionEmoji = icons[r.type] || '';
+
+      if (r.plan_id) {
+        const goLabel = '去' + actionLabel;
         return `
         <div class="my-flower-item" style="margin-bottom:8px">
           <div class="reminder-card ${r.status}">
             ${photoHtml}
-            <span class="reminder-icon">${icons[r.type]||''}</span>
+            <span class="reminder-icon">${actionEmoji}</span>
             <div class="reminder-text">
-              <span class="rt-label">${r.emoji||''} ${r.name} · ${labels[r.type]||r.type}${keptBadge}</span><br>
+              <span class="rt-label">${r.emoji||''} ${r.name} · ${actionLabel}${keptBadge}</span><br>
               <span class="rt-days">${r.msg}</span>
             </div>
             <div class="reminder-actions">
               <button class="reminder-btn-confirm" onclick="confirmReminder(${r.plan_id})">确认</button>
               <button class="reminder-btn-keep" onclick="keepReminder(${r.plan_id})">保持</button>
-              <button class="reminder-action" onclick="completeWaterPlan(${r.plan_id})">已浇</button>
+              <button class="reminder-action" onclick="goAndDoCare(${r.plan_id}, ${r.plant_id}, '${r.flower_id}', '${r.name.replace(/'/g, "\\'")}', '${r.type}')">${goLabel}</button>
             </div>
           </div>
         </div>`;
       }
-      // 花卉级施肥提醒（旧逻辑，无 plan_id）
+
+      // Fallback: flower-level reminder without plan_id (legacy)
       return `
       <div class="my-flower-item" style="margin-bottom:8px">
         <div class="reminder-card ${r.status}">
-          <span class="reminder-icon">${icons[r.type]||''}</span>
+          <span class="reminder-icon">${actionEmoji}</span>
           <div class="reminder-text">
-            <span class="rt-label">${r.emoji||''} ${r.name} · ${labels[r.type]||r.type}</span><br>
+            <span class="rt-label">${r.emoji||''} ${r.name} · ${actionLabel}</span><br>
             <span class="rt-days">${r.msg}${r.days !== null ? '（上次' + r.days + '天前）' : ''}</span>
           </div>
-          <button class="reminder-action" onclick="recordAction('${r.flower_id}','fertilize')">${labels[r.type]||r.type}</button>
+          <button class="reminder-action" onclick="recordAction('${r.flower_id}','${r.type}')">${actionLabel}</button>
         </div>
       </div>`;
     }).join('');
@@ -2248,6 +2678,21 @@ async function completeWaterPlan(planId) {
   } catch (e) {
     alert('操作失败: ' + e.message);
   }
+}
+
+async function goAndDoCare(planId, plantId, flowerId, plantName, careType) {
+  // 先确认掉该提醒
+  try {
+    await api(`/api/user/${currentUser.id}/water-plans/${planId}/confirm`, { method: 'POST' });
+  } catch (e) { /* ignore */ }
+  // 切换到我的花卉tab并打开植株详情
+  switchTab('myflowers');
+  // 等待我的花卉渲染完成
+  setTimeout(() => {
+    openPlantDetail(plantId, flowerId, plantName);
+  }, 300);
+  // 更新提醒badge
+  updateReminderBadge();
 }
 
 // ==================== KNOWLEDGE DETAIL ====================
@@ -2323,13 +2768,13 @@ async function showMyProfile() {
           <span class="pi-icon">🌺</span><span class="pi-label">我的花卉</span>
           <span class="pi-value">${stats.flowers} 种</span>
         </div>
-        <div class="profile-item" style="cursor:default">
+        <div class="profile-item" style="cursor:pointer" onclick="showCareLogsDetail('water')">
           <span class="pi-icon">💧</span><span class="pi-label">浇水记录</span>
-          <span class="pi-value">${stats.water} 次</span>
+          <span class="pi-value">${stats.water} 次</span><span class="pi-arrow">▸</span>
         </div>
-        <div class="profile-item" style="cursor:default">
+        <div class="profile-item" style="cursor:pointer" onclick="showCareLogsDetail('fertilize')">
           <span class="pi-icon">🧪</span><span class="pi-label">施肥记录</span>
-          <span class="pi-value">${stats.fertilize} 次</span>
+          <span class="pi-value">${stats.fertilize} 次</span><span class="pi-arrow">▸</span>
         </div>
       </div>
       <div class="profile-section">
@@ -2342,6 +2787,10 @@ async function showMyProfile() {
           <span class="pi-icon">🚪</span><span class="pi-label" style="color:var(--danger)">退出登录</span>
           <span class="pi-arrow">▸</span>
         </div>
+        <div class="profile-item" style="cursor:default;opacity:0.5">
+          <span class="pi-icon">📋</span><span class="pi-label">版本</span>
+          <span class="pi-value" style="font-size:11px">v${data.version || 'unknown'}</span>
+        </div>
       </div>`;
     document.getElementById('profilePage').classList.add('show');
   } catch (e) {
@@ -2351,6 +2800,48 @@ async function showMyProfile() {
 
 function closeMyProfile() {
   document.getElementById('profilePage').classList.remove('show');
+}
+
+async function showCareLogsDetail(action) {
+  if (!currentUser) return;
+  const labels = { water: '浇水', fertilize: '施肥' };
+  const emojis = { water: '💧', fertilize: '🧪' };
+  const label = labels[action] || action;
+  const emoji = emojis[action] || '';
+
+  document.getElementById('pemTitle').textContent = `${emoji}${label}记录详情`;
+  document.getElementById('pemBody').innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-light)">加载中...</div>';
+  document.getElementById('profileEditModal').classList.add('show');
+
+  try {
+    const data = await api(`/api/user/${currentUser.id}/care-logs?action=${action}`);
+    const logs = data.logs || [];
+    if (logs.length === 0) {
+      document.getElementById('pemBody').innerHTML = `<div style="text-align:center;padding:20px;color:var(--text-light)">暂无${label}记录</div>`;
+      return;
+    }
+    let html = '<div style="max-height:60vh;overflow-y:auto">';
+    for (const log of logs) {
+      const d = log.date || '';
+      const dateStr = d.substring(0, 10);
+      const flowerDisplay = log.plant_name || log.flower_name || '未知';
+      const flowerEmoji = log.flower_emoji || '🌸';
+      const dateObj = new Date(dateStr);
+      const weekDay = ['日','一','二','三','四','五','六'][dateObj.getDay()];
+      const daysAgo = Math.floor((Date.now() - dateObj.getTime()) / 86400000);
+      const daysText = daysAgo === 0 ? '今天' : daysAgo === 1 ? '昨天' : `${daysAgo}天前`;
+      html += `<div style="display:flex;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">`
+        + `<span style="font-size:18px;margin-right:8px">${flowerEmoji}</span>`
+        + `<div style="flex:1">`
+        + `<div style="font-size:14px;font-weight:500">${flowerDisplay}</div>`
+        + `<div style="font-size:12px;color:var(--text-light)">${dateStr} 周${weekDay} · ${daysText}</div>`
+        + `</div></div>`;
+    }
+    html += '</div>';
+    document.getElementById('pemBody').innerHTML = html;
+  } catch (e) {
+    document.getElementById('pemBody').innerHTML = `<div style="text-align:center;padding:20px;color:var(--danger)">加载失败</div>`;
+  }
 }
 
 function openEditCity() {

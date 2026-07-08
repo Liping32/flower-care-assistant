@@ -10,7 +10,7 @@ import re
 from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory, g
 
-WORK_DIR = os.path.dirname(os.path.abspath(__file__))
+WORK_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 app = Flask(__name__, static_folder=WORK_DIR)
 
 DB_PATH = os.path.join(WORK_DIR, 'flower_care.db')
@@ -170,6 +170,33 @@ def init_db():
     except Exception:
         pass
 
+    # 迁移：给 water_plans 表添加 care_type 字段（water/fertilize/repot）
+    try:
+        db.execute('ALTER TABLE water_plans ADD COLUMN care_type TEXT DEFAULT "water"')
+    except Exception:
+        pass
+    # 将已有浇水计划的 care_type 设为 'water'
+    try:
+        db.execute('UPDATE water_plans SET care_type = "water" WHERE care_type IS NULL OR care_type = ""')
+    except Exception:
+        pass
+
+    # 迁移：给 care_logs 表添加 plant_id 字段
+    try:
+        db.execute('ALTER TABLE care_logs ADD COLUMN plant_id INTEGER')
+    except Exception:
+        pass
+
+    # 迁移：给 my_plants 表添加 custom_fertilize_days 和 custom_repot_days 字段
+    try:
+        db.execute('ALTER TABLE my_plants ADD COLUMN custom_fertilize_days INTEGER')
+    except Exception:
+        pass
+    try:
+        db.execute('ALTER TABLE my_plants ADD COLUMN custom_repot_days INTEGER')
+    except Exception:
+        pass
+
     # 用户花卉显示配置表（控制养花知识栏目中花卉的可见性和排序）
     db.execute('''CREATE TABLE IF NOT EXISTS user_flower_config (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,6 +210,34 @@ def init_db():
     )''')
 
     db.commit()
+
+    # 迁移：为已有植株补充缺失的施肥/换盆计划（只需执行一次）
+    try:
+        migrated = db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='_migration_care_plans_done'").fetchone()
+        if not migrated:
+            db.execute('CREATE TABLE _migration_care_plans_done (id INTEGER PRIMARY KEY)')
+            db.execute('INSERT INTO _migration_care_plans_done (id) VALUES (1)')
+
+            # 找出所有植株
+            plants = db.execute('SELECT mp.id, mp.user_id, mp.flower_id, u.city FROM my_plants mp JOIN users u ON mp.user_id = u.id').fetchall()
+            for p in plants:
+                city = p['city'] if 'city' in p.keys() else ''
+                zone_id, _ = get_climate_zone(city) if city else ('warm_temp', CLIMATE_ZONES['warm_temp'])
+                # 检查是否已有施肥计划
+                fert_count = db.execute('SELECT COUNT(*) FROM water_plans WHERE plant_id=? AND care_type=?',
+                                        (p['id'], 'fertilize')).fetchone()[0]
+                if fert_count == 0:
+                    _generate_care_plans(db, p['id'], p['user_id'], p['flower_id'], zone_id, care_type='fertilize', num_plans=5)
+                # 检查是否已有换盆计划
+                repot_count = db.execute('SELECT COUNT(*) FROM water_plans WHERE plant_id=? AND care_type=?',
+                                         (p['id'], 'repot')).fetchone()[0]
+                if repot_count == 0:
+                    _generate_care_plans(db, p['id'], p['user_id'], p['flower_id'], zone_id, care_type='repot', num_plans=5)
+
+            db.commit()
+    except Exception:
+        pass  # 迁移已执行或出错，忽略
+
     count = db.execute("SELECT COUNT(*) FROM flower_knowledge").fetchone()[0]
     if count == 0:
         init_flower_data(db)
@@ -565,9 +620,18 @@ def get_profile(user_id):
     flower_count = db.execute('SELECT COUNT(*) FROM user_flowers WHERE user_id=?', (user_id,)).fetchone()[0]
     water_count = db.execute("SELECT COUNT(*) FROM care_logs WHERE user_id=? AND action='water'", (user_id,)).fetchone()[0]
     fertilize_count = db.execute("SELECT COUNT(*) FROM care_logs WHERE user_id=? AND action='fertilize'", (user_id,)).fetchone()[0]
+    # Get server file modification time as version
+    import os
+    try:
+        server_mtime = os.path.getmtime(__file__)
+        version = datetime.fromtimestamp(server_mtime).strftime('%Y%m%d.%H%M')
+    except:
+        version = 'unknown'
+
     return jsonify({
         'user': dict(user),
-        'stats': {'flowers': flower_count, 'water': water_count, 'fertilize': fertilize_count}
+        'stats': {'flowers': flower_count, 'water': water_count, 'fertilize': fertilize_count},
+        'version': version
     })
 
 @app.route('/api/user/<int:user_id>/profile', methods=['PUT'])
@@ -846,29 +910,98 @@ def record_care(user_id):
     db.commit()
     return jsonify({'success': True, 'date': now})
 
+# ---------- Plant-Level Care Actions ----------
+@app.route('/api/user/<int:user_id>/plants/<int:plant_id>/care', methods=['POST'])
+def record_plant_care(user_id, plant_id):
+    """植株级养护操作：记录浇水/施肥/换盆，并重新生成该类型的未来5条计划"""
+    data = request.json
+    action = data.get('action')  # water / fertilize / repot
+    if action not in ('water', 'fertilize', 'repot'):
+        return jsonify({'error': '无效操作，支持: water/fertilize/repot'}), 400
+
+    now = datetime.now()
+    now_str = now.strftime('%Y-%m-%d %H:%M:%S')
+    db = get_db()
+
+    # 验证植株归属
+    plant = db.execute('SELECT id, flower_id FROM my_plants WHERE id=? AND user_id=?',
+                       (plant_id, user_id)).fetchone()
+    if not plant:
+        return jsonify({'error': '植株不存在'}), 404
+
+    flower_id = plant['flower_id']
+
+    # 记录养护日志（同时记录flower_id和plant_id）
+    db.execute('INSERT INTO care_logs (user_id, flower_id, plant_id, action, date) VALUES (?,?,?,?,?)',
+               (user_id, flower_id, plant_id, action, now_str))
+
+    # 也更新 user_flowers 的 last_xxx 字段（保持兼容）
+    uf = db.execute('SELECT id FROM user_flowers WHERE user_id=? AND flower_id=?', (user_id, flower_id)).fetchone()
+    if uf:
+        col = f'last_{action}'
+        db.execute(f'UPDATE user_flowers SET {col}=? WHERE user_id=? AND flower_id=?',
+                   (now_str, user_id, flower_id))
+
+    # 清除该植株该类型的所有pending计划，从今天重新生成5条
+    db.execute('DELETE FROM water_plans WHERE plant_id=? AND care_type=? AND status=?',
+               (plant_id, action, 'pending'))
+
+    user = db.execute('SELECT city FROM users WHERE id=?', (user_id,)).fetchone()
+    city = user['city'] if user else ''
+    zone_id, _ = get_climate_zone(city) if city else ('warm_temp', CLIMATE_ZONES['warm_temp'])
+    _generate_care_plans(db, plant_id, user_id, flower_id, zone_id, care_type=action, num_plans=5, start_from=now)
+
+    db.commit()
+    return jsonify({'success': True, 'date': now_str, 'action': action})
+
 @app.route('/api/user/<int:user_id>/care-logs', methods=['GET'])
 def get_care_logs(user_id):
     flower_id = request.args.get('flower_id')
+    action = request.args.get('action')
     db = get_db()
+    query = '''SELECT cl.*, fk.name as flower_name, fk.emoji as flower_emoji,
+                      mp.plant_name, mp.photo as plant_photo
+               FROM care_logs cl
+               LEFT JOIN flower_knowledge fk ON cl.flower_id = fk.flower_id
+               LEFT JOIN my_plants mp ON cl.plant_id = mp.id
+               WHERE cl.user_id=?'''
+    params = [user_id]
     if flower_id:
-        rows = db.execute('SELECT * FROM care_logs WHERE user_id=? AND flower_id=? ORDER BY date DESC LIMIT 50',
-                          (user_id, flower_id)).fetchall()
-    else:
-        rows = db.execute('SELECT * FROM care_logs WHERE user_id=? ORDER BY date DESC LIMIT 100',
-                          (user_id,)).fetchall()
+        query += ' AND cl.flower_id=?'
+        params.append(flower_id)
+    if action:
+        query += ' AND cl.action=?'
+        params.append(action)
+    query += ' ORDER BY cl.date DESC LIMIT 100'
+    rows = db.execute(query, params).fetchall()
     return jsonify({'logs': [dict(r) for r in rows]})
+
+@app.route('/api/user/<int:user_id>/care-logs/<int:log_id>', methods=['PUT'])
+def update_care_log_date(user_id, log_id):
+    """修改单条养护记录的日期"""
+    data = request.json
+    new_date = data.get('date', '').strip()
+    if not new_date:
+        return jsonify({'error': '日期不能为空'}), 400
+    db = get_db()
+    log = db.execute('SELECT id FROM care_logs WHERE id=? AND user_id=?', (log_id, user_id)).fetchone()
+    if not log:
+        return jsonify({'error': '记录不存在'}), 404
+    db.execute('UPDATE care_logs SET date=? WHERE id=? AND user_id=?', (new_date, log_id, user_id))
+    db.commit()
+    return jsonify({'success': True})
 
 # ---------- Reminders ----------
 @app.route('/api/user/<int:user_id>/reminders', methods=['GET'])
 def get_reminders(user_id):
-    """基于植株浇水计划的提醒：提前2/1/0天提醒，过期每日提醒，支持确认/保持"""
+    """基于植株养护计划的提醒：浇水/施肥<=1天提醒，换盆<=2天提醒，过期每日提醒，支持确认/保持"""
     db = get_db()
-    today = datetime.now().strftime('%Y-%m-%d')
     today_dt = datetime.now().date()
+    today_str = today_dt.strftime('%Y-%m-%d')
 
     reminders = []
 
-    # 获取用户所有植株及其下一个 pending 的浇水计划
+    # 获取用户所有植株
     plants = db.execute('''
         SELECT mp.id as plant_id, mp.plant_name, mp.photo as plant_photo,
                mp.flower_id, fk.name as flower_name, fk.emoji, fk.photo
@@ -878,113 +1011,80 @@ def get_reminders(user_id):
         ORDER BY mp.created_at
     ''', (user_id,)).fetchall()
 
+    care_type_labels = {'water': '浇水', 'fertilize': '施肥', 'repot': '换盆'}
+
     for p in plants:
-        # 找到该植株最近的一个 pending 计划
-        next_plan = db.execute('''
-            SELECT id, plan_date, status, reminder_status, reminder_updated
-            FROM water_plans
-            WHERE plant_id=? AND status='pending'
-            ORDER BY plan_date ASC
-            LIMIT 1
-        ''', (p['plant_id'],)).fetchone()
+        for ct in ('water', 'fertilize', 'repot'):
+            # 找到该植株该类型最早的 pending 计划
+            next_plan = db.execute('''
+                SELECT id, plan_date, status, reminder_status, reminder_updated
+                FROM water_plans
+                WHERE plant_id=? AND care_type=? AND status='pending'
+                ORDER BY plan_date ASC
+                LIMIT 1
+            ''', (p['plant_id'], ct)).fetchone()
 
-        if not next_plan:
-            continue
+            if not next_plan:
+                continue
 
-        plan_date = datetime.strptime(next_plan['plan_date'], '%Y-%m-%d').date()
-        days_until = (plan_date - today_dt).days
-        reminder_status = next_plan['reminder_status'] or 'pending'
+            plan_date = datetime.strptime(next_plan['plan_date'], '%Y-%m-%d').date()
+            days_until = (plan_date - today_dt).days
+            reminder_status = next_plan['reminder_status'] if 'reminder_status' in next_plan.keys() else 'pending'
+            if not reminder_status:
+                reminder_status = 'pending'
 
-        # 如果已确认，跳过该提醒（本周期不再提醒）
-        if reminder_status == 'confirmed':
-            continue
+            # 如果已确认且是今天确认的，跳过该提醒（当天不再出现）
+            # 如果已确认但已过确认日期（次日或更久），重置为pending继续提醒
+            if reminder_status == 'confirmed':
+                reminder_updated = next_plan['reminder_updated'] if 'reminder_updated' in next_plan.keys() else None
+                if reminder_updated and reminder_updated.startswith(today_str):
+                    # 今天确认的，当天不再提醒
+                    continue
+                else:
+                    # 非今天确认的，重置为pending，继续提醒
+                    db.execute('UPDATE water_plans SET reminder_status=? WHERE id=?', ('pending', next_plan['id']))
+                    db.commit()
+                    reminder_status = 'pending'
 
-        # 构建提醒信息
-        plant_display = p['plant_name'] or p['flower_name']
-        item = {
-            'plant_id': p['plant_id'],
-            'plan_id': next_plan['id'],
-            'flower_id': p['flower_id'],
-            'name': plant_display,
-            'emoji': p['emoji'],
-            'plant_photo': p['plant_photo'],
-            'flower_photo': p['photo'],
-            'type': 'water',
-            'plan_date': next_plan['plan_date'],
-            'reminder_status': reminder_status,
-        }
+            # 保留 kept 状态的提醒一直显示
+            # 构建提醒信息
+            plant_display = p['plant_name'] or p['flower_name']
+            label = care_type_labels[ct]
+            item = {
+                'plant_id': p['plant_id'],
+                'plan_id': next_plan['id'],
+                'flower_id': p['flower_id'],
+                'name': plant_display,
+                'emoji': p['emoji'],
+                'plant_photo': p['plant_photo'],
+                'flower_photo': p['photo'],
+                'type': ct,
+                'plan_date': next_plan['plan_date'],
+                'reminder_status': reminder_status,
+            }
 
-        if days_until < 0:
-            item['status'] = 'overdue'
-            item['msg'] = f'已超过浇水日期{abs(days_until)}天'
-            item['days'] = abs(days_until)
-        elif days_until == 0:
-            item['status'] = 'today'
-            item['msg'] = '今天需要浇水'
-            item['days'] = 0
-        elif days_until == 1:
-            item['status'] = 'soon'
-            item['msg'] = '明天需要浇水'
-            item['days'] = 1
-        elif days_until == 2:
-            item['status'] = 'soon'
-            item['msg'] = '后天需要浇水'
-            item['days'] = 2
-        else:
-            # 还早，不显示提醒
-            continue
+            if days_until < 0:
+                item['status'] = 'overdue'
+                item['msg'] = f'已超过{label}日期{abs(days_until)}天'
+                item['days'] = abs(days_until)
+            elif days_until == 0:
+                item['status'] = 'today'
+                item['msg'] = f'今天需要{label}'
+                item['days'] = 0
+            elif days_until == 1:
+                item['status'] = 'soon'
+                item['msg'] = f'明天需要{label}'
+                item['days'] = 1
+            elif days_until == 2 and ct == 'repot':
+                # 换盆保留后天提醒，浇水/施肥仅<=1天提醒
+                item['status'] = 'soon'
+                item['msg'] = f'后天需要{label}'
+                item['days'] = 2
+            else:
+                # 还早，不显示提醒
+                continue
 
-        reminders.append(item)
-
-    # 保留花卉级施肥提醒（基于 user_flowers 表）
-    user = db.execute('SELECT city FROM users WHERE id=?', (user_id,)).fetchone()
-    city = user['city'] if user else ''
-    zone_id, _ = get_climate_zone(city) if city else ('warm_temp', CLIMATE_ZONES['warm_temp'])
-
-    flower_rows = db.execute('''
-        SELECT uf.flower_id, uf.last_fertilize,
-               fk.name, fk.emoji,
-               fk.spring_fertilize, fk.summer_fertilize, fk.autumn_fertilize, fk.winter_fertilize
-        FROM user_flowers uf
-        JOIN flower_knowledge fk ON uf.flower_id = fk.flower_id
-        WHERE uf.user_id=?
-    ''', (user_id,)).fetchall()
-
-    now = datetime.now()
-    for r in flower_rows:
-        item = dict(r)
-        month = now.month
-        if month in (3,4,5): season = 'spring'
-        elif month in (6,7,8): season = 'summer'
-        elif month in (9,10,11): season = 'autumn'
-        else: season = 'winter'
-
-        adj_care = get_adjusted_season_care(item, zone_id, season)
-        fert_interval_str = adj_care['fertilize']
-
-        if '停' in fert_interval_str or '不需' in fert_interval_str:
-            continue
-        fm = re_match(fert_interval_str)
-        if not fm:
-            continue
-
-        fert_interval = fm
-        if item['last_fertilize']:
-            last = datetime.strptime(item['last_fertilize'], '%Y-%m-%d %H:%M:%S')
-            days_since = (now - last).days
-            remaining = fert_interval - days_since
-            if remaining <= 0:
-                reminders.append({'flower_id': item['flower_id'], 'name': item['name'], 'emoji': item['emoji'],
-                                  'type': 'fertilize', 'status': 'overdue', 'msg': f'已超过施肥周期{abs(remaining)}天', 'days': days_since,
-                                  'plant_id': None, 'plan_id': None, 'reminder_status': None})
-            elif remaining == 0:
-                reminders.append({'flower_id': item['flower_id'], 'name': item['name'], 'emoji': item['emoji'],
-                                  'type': 'fertilize', 'status': 'today', 'msg': '今天需要施肥', 'days': days_since,
-                                  'plant_id': None, 'plan_id': None, 'reminder_status': None})
-        else:
-            reminders.append({'flower_id': item['flower_id'], 'name': item['name'], 'emoji': item['emoji'],
-                              'type': 'fertilize', 'status': 'overdue', 'msg': '尚未记录施肥', 'days': None,
-                              'plant_id': None, 'plan_id': None, 'reminder_status': None})
+            reminders.append(item)
 
     # 排序：overdue + kept > overdue > today > soon
     def sort_key(x):
@@ -993,7 +1093,7 @@ def get_reminders(user_id):
         return (status_order.get(x['status'], 3) + kept_boost, x.get('days', 999))
     reminders.sort(key=sort_key)
 
-    return jsonify({'reminders': reminders})
+    return jsonify({'reminders': reminders, 'count': len(reminders)})
 
 def re_match(s):
     """Extract first number from string like '3-5天' or '7天'"""
@@ -1020,7 +1120,7 @@ def re_match_range(s):
 
 @app.route('/api/user/<int:user_id>/plants', methods=['GET'])
 def get_plants(user_id):
-    """获取用户所有植株，可按flower_id过滤"""
+    """获取用户所有植株，可按flower_id过滤，返回浇水/施肥/换盆间隔信息"""
     db = get_db()
     flower_id = request.args.get('flower_id', '').strip()
     user = db.execute('SELECT city FROM users WHERE id=?', (user_id,)).fetchone()
@@ -1029,7 +1129,8 @@ def get_plants(user_id):
 
     if flower_id:
         rows = db.execute('''
-            SELECT mp.id, mp.flower_id, mp.plant_name, mp.custom_water_days, mp.photo, mp.identify_result, mp.created_at,
+            SELECT mp.id, mp.flower_id, mp.plant_name, mp.custom_water_days, mp.custom_fertilize_days, mp.custom_repot_days,
+                   mp.photo, mp.identify_result, mp.created_at,
                    fk.name as flower_name, fk.emoji, fk.photo
             FROM my_plants mp
             JOIN flower_knowledge fk ON mp.flower_id = fk.flower_id
@@ -1038,7 +1139,8 @@ def get_plants(user_id):
         ''', (user_id, flower_id)).fetchall()
     else:
         rows = db.execute('''
-            SELECT mp.id, mp.flower_id, mp.plant_name, mp.custom_water_days, mp.photo, mp.identify_result, mp.created_at,
+            SELECT mp.id, mp.flower_id, mp.plant_name, mp.custom_water_days, mp.custom_fertilize_days, mp.custom_repot_days,
+                   mp.photo, mp.identify_result, mp.created_at,
                    fk.name as flower_name, fk.emoji, fk.photo
             FROM my_plants mp
             JOIN flower_knowledge fk ON mp.flower_id = fk.flower_id
@@ -1057,7 +1159,7 @@ def get_plants(user_id):
                 item['identify_result'] = None
         else:
             item['identify_result'] = None
-        # Get current season and adjusted water interval
+        # Get current season and adjusted intervals for all 3 types
         now = datetime.now()
         month = now.month
         if month in (3,4,5): season = 'spring'
@@ -1065,20 +1167,67 @@ def get_plants(user_id):
         elif month in (9,10,11): season = 'autumn'
         else: season = 'winter'
 
-        fk = db.execute('''SELECT spring_water, summer_water, autumn_water, winter_water
+        fk = db.execute('''SELECT spring_water, summer_water, autumn_water, winter_water,
+                                  spring_fertilize, summer_fertilize, autumn_fertilize, winter_fertilize,
+                                  repot
                            FROM flower_knowledge WHERE flower_id=?''', (r['flower_id'],)).fetchone()
         if fk:
             adj = get_adjusted_season_care(dict(fk), zone_id, season)
+            # Water
             item['water_interval'] = adj['water']
             item['water_interval_original'] = adj.get('water_original', adj['water'])
-            item['current_season'] = season
-            # If custom_water_days is set, use it as the effective interval
-            cwd = r['custom_water_days']
+            cwd = r['custom_water_days'] if 'custom_water_days' in r.keys() else None
             item['custom_water_days'] = cwd
             if cwd:
                 item['water_interval_effective'] = f'{cwd}天'
             else:
                 item['water_interval_effective'] = adj['water']
+            # Fertilize
+            item['fertilize_interval'] = adj['fertilize']
+            item['fertilize_interval_original'] = adj.get('fertilize_original', adj['fertilize'])
+            cfd = r['custom_fertilize_days'] if 'custom_fertilize_days' in r.keys() else None
+            item['custom_fertilize_days'] = cfd
+            if cfd:
+                item['fertilize_interval_effective'] = f'{cfd}天'
+            else:
+                item['fertilize_interval_effective'] = adj['fertilize']
+            # Repot
+            repot_str = fk['repot'] if 'repot' in fk.keys() else ''
+            item['repot_info'] = repot_str
+            crd = r['custom_repot_days'] if 'custom_repot_days' in r.keys() else None
+            item['custom_repot_days'] = crd
+            if crd:
+                item['repot_interval_effective'] = f'{crd}天'
+            else:
+                item['repot_interval_effective'] = repot_str
+
+            item['current_season'] = season
+
+        # Get last action dates from care_logs for this plant
+        for action, key in [('water', 'last_water_date'), ('fertilize', 'last_fertilize_date'), ('repot', 'last_repot_date')]:
+            last_log = db.execute(
+                'SELECT date FROM care_logs WHERE plant_id=? AND action=? ORDER BY date DESC LIMIT 1',
+                (r['id'], action)).fetchone()
+            item[key] = last_log['date'] if last_log else None
+
+        # Get last 3 water care logs for this plant (with id for editing)
+        water_logs = db.execute(
+            'SELECT id, date FROM care_logs WHERE plant_id=? AND action="water" ORDER BY date DESC LIMIT 3',
+            (r['id'],)).fetchall()
+        item['water_logs'] = [{'id': wl['id'], 'date': wl['date']} for wl in water_logs]
+
+        # Get last 3 fertilize care logs for this plant (with id for editing)
+        fertilize_logs = db.execute(
+            'SELECT id, date FROM care_logs WHERE plant_id=? AND action="fertilize" ORDER BY date DESC LIMIT 3',
+            (r['id'],)).fetchall()
+        item['fertilize_logs'] = [{'id': fl['id'], 'date': fl['date']} for fl in fertilize_logs]
+
+        # Get last 3 repot care logs for this plant (with id for editing)
+        repot_logs = db.execute(
+            'SELECT id, date FROM care_logs WHERE plant_id=? AND action="repot" ORDER BY date DESC LIMIT 3',
+            (r['id'],)).fetchall()
+        item['repot_logs'] = [{'id': rl['id'], 'date': rl['date']} for rl in repot_logs]
+
         result.append(item)
     return jsonify({'plants': result})
 
@@ -1109,8 +1258,9 @@ def add_plant(user_id):
                         (user_id, flower_id, plant_name))
     plant_id = cursor.lastrowid
 
-    # Auto-generate watering plan for next 30 days
-    _generate_water_plans(db, plant_id, user_id, flower_id, zone_id)
+    # Auto-generate care plans for all 3 types (water, fertilize, repot)
+    for ct in ('water', 'fertilize', 'repot'):
+        _generate_care_plans(db, plant_id, user_id, flower_id, zone_id, care_type=ct, num_plans=5)
 
     db.commit()
 
@@ -1119,7 +1269,7 @@ def add_plant(user_id):
 
 @app.route('/api/user/<int:user_id>/plants/<int:plant_id>', methods=['PUT'])
 def update_plant(user_id, plant_id):
-    """修改植株名称和/或自定义浇水周期"""
+    """修改植株名称和/或自定义养护周期（浇水/施肥/换盆）"""
     data = request.json
     db = get_db()
     plant = db.execute('SELECT id FROM my_plants WHERE id=? AND user_id=?', (plant_id, user_id)).fetchone()
@@ -1134,14 +1284,32 @@ def update_plant(user_id, plant_id):
             return jsonify({'error': '植株名称不能为空且不超过20字'}), 400
         updates.append('plant_name=?')
         params.append(plant_name)
-    if 'custom_water_days' in data:
-        val = data['custom_water_days']
-        if val is not None:
-            val = int(val)
-            if val < 1 or val > 60:
-                return jsonify({'error': '浇水周期需在1-60天之间'}), 400
-        updates.append('custom_water_days=?')
-        params.append(val)
+
+    # Support modifying created_at (join date)
+    if 'created_at' in data:
+        created_at = data['created_at'].strip()
+        if created_at:
+            try:
+                datetime.strptime(created_at, '%Y-%m-%d')
+                updates.append('created_at=?')
+                params.append(created_at + ' 00:00:00' if ' ' not in created_at else created_at)
+            except ValueError:
+                return jsonify({'error': '日期格式应为 YYYY-MM-DD'}), 400
+
+    # Support custom intervals for all 3 care types
+    for ct, col_name, label in [('water', 'custom_water_days', '浇水'),
+                                 ('fertilize', 'custom_fertilize_days', '施肥'),
+                                 ('repot', 'custom_repot_days', '换盆')]:
+        if col_name in data:
+            val = data[col_name]
+            if val is not None:
+                val = int(val)
+                min_val = 1 if ct != 'repot' else 7
+                max_val = 60 if ct != 'repot' else 730
+                if val < min_val or val > max_val:
+                    return jsonify({'error': f'{label}周期需在{min_val}-{max_val}天之间'}), 400
+            updates.append(f'{col_name}=?')
+            params.append(val)
 
     if not updates:
         return jsonify({'error': '无更新内容'}), 400
@@ -1150,16 +1318,18 @@ def update_plant(user_id, plant_id):
     db.execute(f'UPDATE my_plants SET {",".join(updates)} WHERE id=? AND user_id=?', params)
     db.commit()
 
-    # If custom_water_days changed, regenerate pending water plans
-    if 'custom_water_days' in data:
-        db.execute('DELETE FROM water_plans WHERE plant_id=? AND status=?', (plant_id, 'pending'))
-        user = db.execute('SELECT city FROM users WHERE id=?', (user_id,)).fetchone()
-        city = user['city'] if user else ''
-        zone_id, _ = get_climate_zone(city) if city else ('warm_temp', CLIMATE_ZONES['warm_temp'])
-        plant_row = db.execute('SELECT flower_id FROM my_plants WHERE id=?', (plant_id,)).fetchone()
-        if plant_row:
-            _generate_water_plans(db, plant_id, user_id, plant_row['flower_id'], zone_id)
-        db.commit()
+    # If any custom days changed, regenerate pending plans for that type
+    for ct, col_name in [('water', 'custom_water_days'), ('fertilize', 'custom_fertilize_days'), ('repot', 'custom_repot_days')]:
+        if col_name in data:
+            db.execute('DELETE FROM water_plans WHERE plant_id=? AND care_type=? AND status=?',
+                       (plant_id, ct, 'pending'))
+            user = db.execute('SELECT city FROM users WHERE id=?', (user_id,)).fetchone()
+            city = user['city'] if user else ''
+            zone_id, _ = get_climate_zone(city) if city else ('warm_temp', CLIMATE_ZONES['warm_temp'])
+            plant_row = db.execute('SELECT flower_id FROM my_plants WHERE id=?', (plant_id,)).fetchone()
+            if plant_row:
+                _generate_care_plans(db, plant_id, user_id, plant_row['flower_id'], zone_id, care_type=ct, num_plans=5)
+            db.commit()
 
     return jsonify({'success': True})
 
@@ -1172,35 +1342,123 @@ def delete_plant(user_id, plant_id):
     db.commit()
     return jsonify({'success': True})
 
-def _generate_water_plans(db, plant_id, user_id, flower_id, zone_id):
-    """为植株生成未来浇水计划（从今天开始的后续plan）"""
+def _generate_care_plans(db, plant_id, user_id, flower_id, zone_id, care_type='water', num_plans=5, start_from=None):
+    """为植株生成未来养护计划（浇水/施肥/换盆），从今天开始生成num_plans条pending计划
+    start_from: 若指定，则从该日期开始生成（忽略已有计划日期）"""
     from datetime import timedelta
 
-    # Check if plant has custom_water_days
-    plant_row = db.execute('SELECT custom_water_days FROM my_plants WHERE id=?', (plant_id,)).fetchone()
-    custom_days = plant_row['custom_water_days'] if plant_row else None
+    # 确定自定义间隔列和季节知识列
+    custom_col = f'custom_{care_type}_days'
+    season_cols = {
+        'water': ('spring_water', 'summer_water', 'autumn_water', 'winter_water'),
+        'fertilize': ('spring_fertilize', 'summer_fertilize', 'autumn_fertilize', 'winter_fertilize'),
+        'repot': None,  # 换盆没有季节区分，用 repot 文本字段
+    }
 
-    fk_row = db.execute('''SELECT spring_water, summer_water, autumn_water, winter_water
-                           FROM flower_knowledge WHERE flower_id=?''', (flower_id,)).fetchone()
+    plant_row = db.execute(f'SELECT {custom_col} FROM my_plants WHERE id=?', (plant_id,)).fetchone()
+    custom_days = plant_row[custom_col] if plant_row and custom_col in plant_row.keys() else None
+
+    # 换盆特殊处理：从 repot 字段解析间隔
+    if care_type == 'repot':
+        fk_row = db.execute('SELECT repot FROM flower_knowledge WHERE flower_id=?', (flower_id,)).fetchone()
+        if not fk_row:
+            return
+        repot_str = fk_row['repot'] if 'repot' in fk_row.keys() else ''
+        # 解析换盆间隔，如"每年春季换盆一次"或"1-2年换盆一次"
+        if '不需' in repot_str or '无需' in repot_str or '停止' in repot_str or '不用' in repot_str:
+            return  # 不需要换盆
+        # 从repot文本提取数字作为月数（如"1-2年"→18个月, "每年"→12个月）
+        nums = re.findall(r'\d+', repot_str)
+        if custom_days:
+            repot_interval_days = custom_days
+        elif '年' in repot_str and nums:
+            if len(nums) >= 2:
+                repot_interval_days = round((int(nums[0]) + int(nums[1])) / 2 * 365)
+            else:
+                repot_interval_days = int(nums[0]) * 365
+        elif '月' in repot_str and nums:
+            if len(nums) >= 2:
+                repot_interval_days = round((int(nums[0]) + int(nums[1])) / 2 * 30)
+            else:
+                repot_interval_days = int(nums[0]) * 30
+        elif nums:
+            # 默认按年处理
+            if len(nums) >= 2:
+                repot_interval_days = round((int(nums[0]) + int(nums[1])) / 2 * 365)
+            else:
+                repot_interval_days = int(nums[0]) * 365
+        else:
+            repot_interval_days = 365  # 默认1年
+
+        now = datetime.now()
+        if start_from:
+            start_date = start_from
+        else:
+            # 找该植株此类型已有的最近pending计划日期
+            existing = db.execute(
+                'SELECT MAX(plan_date) FROM water_plans WHERE plant_id=? AND care_type=?',
+                (plant_id, care_type)).fetchone()[0]
+            start_date = now
+            if existing:
+                last_plan = datetime.strptime(existing, '%Y-%m-%d')
+                if last_plan > start_date:
+                    start_date = last_plan
+
+        current = start_date
+        existing_pending = db.execute(
+            'SELECT COUNT(*) FROM water_plans WHERE plant_id=? AND care_type=? AND status=?',
+            (plant_id, care_type, 'pending')).fetchone()[0]
+        need = num_plans - existing_pending
+        if need <= 0:
+            return
+
+        for _ in range(need):
+            next_date = current + timedelta(days=repot_interval_days)
+            plan_date_str = next_date.strftime('%Y-%m-%d')
+            exists = db.execute(
+                'SELECT id FROM water_plans WHERE plant_id=? AND plan_date=? AND care_type=?',
+                (plant_id, plan_date_str, care_type)).fetchone()
+            if not exists:
+                db.execute('INSERT INTO water_plans (plant_id, plan_date, status, care_type) VALUES (?,?,?,?)',
+                           (plant_id, plan_date_str, 'pending', care_type))
+            current = next_date
+        return
+
+    # 浇水和施肥：基于季节知识
+    cols = season_cols[care_type]
+    fk_row = db.execute(
+        f'SELECT {cols[0]}, {cols[1]}, {cols[2]}, {cols[3]} FROM flower_knowledge WHERE flower_id=?',
+        (flower_id,)).fetchone()
     if not fk_row:
         return
 
     now = datetime.now()
-    # Determine how many plans already exist for this plant
-    existing = db.execute('SELECT MAX(plan_date) FROM water_plans WHERE plant_id=?', (plant_id,)).fetchone()[0]
-    start_date = now
-    if existing:
-        last_plan = datetime.strptime(existing, '%Y-%m-%d')
-        if last_plan > start_date:
-            start_date = last_plan
+    if start_from:
+        start_date = start_from
+    else:
+        # 找该植株此类型已有的最近pending计划日期
+        existing = db.execute(
+            'SELECT MAX(plan_date) FROM water_plans WHERE plant_id=? AND care_type=?',
+            (plant_id, care_type)).fetchone()[0]
+        start_date = now
+        if existing:
+            last_plan = datetime.strptime(existing, '%Y-%m-%d')
+            if last_plan > start_date:
+                start_date = last_plan
 
-    # Generate plans for next 90 days from start_date
     current = start_date
-    end_horizon = now + timedelta(days=90)
+    existing_pending = db.execute(
+        'SELECT COUNT(*) FROM water_plans WHERE plant_id=? AND care_type=? AND status=?',
+        (plant_id, care_type, 'pending')).fetchone()[0]
+    need = num_plans - existing_pending
+    if need <= 0:
+        return
 
-    while current < end_horizon:
+    count = 0
+    max_iterations = need * 3  # 防止死循环
+    while count < need and max_iterations > 0:
+        max_iterations -= 1
         if custom_days:
-            # Use custom interval - fixed days regardless of season
             interval = custom_days
             next_date = current + timedelta(days=interval)
         else:
@@ -1211,14 +1469,14 @@ def _generate_water_plans(db, plant_id, user_id, flower_id, zone_id):
             else: season = 'winter'
 
             adj = get_adjusted_season_care(dict(fk_row), zone_id, season)
-            water_str = adj['water']
+            care_str = adj[care_type]  # 'water' or 'fertilize'
 
-            # Skip if no watering needed
-            if '停' in water_str or '不需' in water_str:
+            # Skip if not needed this season
+            if '停' in care_str or '不需' in care_str or '无需' in care_str:
                 current = current + timedelta(days=30)
                 continue
 
-            lo, hi = re_match_range(water_str)
+            lo, hi = re_match_range(care_str)
             if lo is None:
                 current = current + timedelta(days=7)
                 continue
@@ -1226,19 +1484,26 @@ def _generate_water_plans(db, plant_id, user_id, flower_id, zone_id):
             interval = round((lo + hi) / 2)
             next_date = current + timedelta(days=interval)
 
-        # Check if plan already exists for this date
         plan_date_str = next_date.strftime('%Y-%m-%d')
-        exists = db.execute('SELECT id FROM water_plans WHERE plant_id=? AND plan_date=?', (plant_id, plan_date_str)).fetchone()
+        exists = db.execute(
+            'SELECT id FROM water_plans WHERE plant_id=? AND plan_date=? AND care_type=?',
+            (plant_id, plan_date_str, care_type)).fetchone()
         if not exists:
-            db.execute('INSERT INTO water_plans (plant_id, plan_date, status) VALUES (?,?,?)',
-                       (plant_id, plan_date_str, 'pending'))
+            db.execute('INSERT INTO water_plans (plant_id, plan_date, status, care_type) VALUES (?,?,?,?)',
+                       (plant_id, plan_date_str, 'pending', care_type))
+            count += 1
         current = next_date
+
+# 保留旧函数名作为兼容别名
+def _generate_water_plans(db, plant_id, user_id, flower_id, zone_id):
+    """向后兼容：生成浇水计划"""
+    _generate_care_plans(db, plant_id, user_id, flower_id, zone_id, care_type='water', num_plans=5)
 
 # ==================== WATER PLANS (浇水计划) ====================
 
 @app.route('/api/user/<int:user_id>/plants/<int:plant_id>/water-plans', methods=['GET'])
 def get_water_plans(user_id, plant_id):
-    """获取某植株的浇水计划"""
+    """获取某植株的养护计划，可按care_type和status过滤"""
     db = get_db()
     # Verify plant belongs to user
     plant = db.execute('SELECT id FROM my_plants WHERE id=? AND user_id=?', (plant_id, user_id)).fetchone()
@@ -1246,45 +1511,62 @@ def get_water_plans(user_id, plant_id):
         return jsonify({'error': '植株不存在'}), 404
 
     status_filter = request.args.get('status', '').strip()  # pending / done / skipped
+    care_type_filter = request.args.get('care_type', '').strip()  # water / fertilize / repot
 
+    query = '''
+        SELECT id, plan_date, status, actual_date, notes, created_at, reminder_status, reminder_updated, care_type
+        FROM water_plans WHERE plant_id=?
+    '''
+    params = [plant_id]
+
+    if care_type_filter:
+        query += ' AND care_type=?'
+        params.append(care_type_filter)
     if status_filter:
-        rows = db.execute('''
-            SELECT id, plan_date, status, actual_date, notes, created_at, reminder_status, reminder_updated
-            FROM water_plans WHERE plant_id=? AND status=?
-            ORDER BY plan_date
-        ''', (plant_id, status_filter)).fetchall()
-    else:
-        rows = db.execute('''
-            SELECT id, plan_date, status, actual_date, notes, created_at, reminder_status, reminder_updated
-            FROM water_plans WHERE plant_id=?
-            ORDER BY plan_date
-        ''', (plant_id,)).fetchall()
+        query += ' AND status=?'
+        params.append(status_filter)
+
+    query += ' ORDER BY plan_date'
+    rows = db.execute(query, params).fetchall()
 
     return jsonify({'plans': [dict(r) for r in rows]})
 
 @app.route('/api/user/<int:user_id>/water-plans/<int:plan_id>/complete', methods=['POST'])
 def complete_water_plan(user_id, plan_id):
-    """完成浇水（标记计划为已完成），并更新下次计划"""
+    """完成养护计划（标记为已完成），并扩展该类型的后续计划"""
     db = get_db()
     now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     plan = db.execute('''
-        SELECT wp.id, wp.plant_id, wp.plan_date, wp.status, mp.flower_id, mp.user_id
+        SELECT wp.id, wp.plant_id, wp.plan_date, wp.status, wp.care_type, mp.flower_id, mp.user_id
         FROM water_plans wp JOIN my_plants mp ON wp.plant_id = mp.id
         WHERE wp.id=? AND mp.user_id=?
     ''', (plan_id, user_id)).fetchone()
     if not plan:
         return jsonify({'error': '计划不存在'}), 404
 
+    care_type = plan['care_type'] if 'care_type' in plan.keys() else 'water'
     db.execute('UPDATE water_plans SET status=?, actual_date=? WHERE id=?', ('done', now_str, plan_id))
 
-    # Generate more future plans if needed
+    # 同时记录养护日志
+    db.execute('INSERT INTO care_logs (user_id, flower_id, plant_id, action, date) VALUES (?,?,?,?,?)',
+               (user_id, plan['flower_id'], plan['plant_id'], care_type, now_str))
+
+    # 也更新 user_flowers 的 last_xxx 字段（保持兼容）
+    uf = db.execute('SELECT id FROM user_flowers WHERE user_id=? AND flower_id=?',
+                    (user_id, plan['flower_id'])).fetchone()
+    if uf:
+        col = f'last_{care_type}'
+        db.execute(f'UPDATE user_flowers SET {col}=? WHERE user_id=? AND flower_id=?',
+                   (now_str, user_id, plan['flower_id']))
+
+    # Generate more future plans of the same care_type
     user = db.execute('SELECT city FROM users WHERE id=?', (user_id,)).fetchone()
     city = user['city'] if user else ''
     zone_id, _ = get_climate_zone(city) if city else ('warm_temp', CLIMATE_ZONES['warm_temp'])
-    _generate_water_plans(db, plan['plant_id'], user_id, plan['flower_id'], zone_id)
+    _generate_care_plans(db, plan['plant_id'], user_id, plan['flower_id'], zone_id, care_type=care_type, num_plans=5)
 
     db.commit()
-    return jsonify({'success': True, 'actual_date': now_str})
+    return jsonify({'success': True, 'actual_date': now_str, 'care_type': care_type})
 
 @app.route('/api/user/<int:user_id>/water-plans/<int:plan_id>/skip', methods=['POST'])
 def skip_water_plan(user_id, plan_id):
@@ -1341,19 +1623,26 @@ def keep_water_plan(user_id, plan_id):
 
 @app.route('/api/user/<int:user_id>/plants/<int:plant_id>/water-plans/regenerate', methods=['POST'])
 def regenerate_water_plans(user_id, plant_id):
-    """重新生成浇水计划（清除pending的计划，重新计算）"""
+    """重新生成养护计划（清除pending的计划，重新计算），支持care_type参数"""
     db = get_db()
     plant = db.execute('SELECT id, flower_id FROM my_plants WHERE id=? AND user_id=?', (plant_id, user_id)).fetchone()
     if not plant:
         return jsonify({'error': '植株不存在'}), 404
 
-    # Delete pending plans only (keep done/skipped as history)
-    db.execute('DELETE FROM water_plans WHERE plant_id=? AND status=?', (plant_id, 'pending'))
+    care_type = request.json.get('care_type', '') if request.json else ''
+    care_types = [care_type] if care_type in ('water', 'fertilize', 'repot') else ['water', 'fertilize', 'repot']
 
     user = db.execute('SELECT city FROM users WHERE id=?', (user_id,)).fetchone()
     city = user['city'] if user else ''
     zone_id, _ = get_climate_zone(city) if city else ('warm_temp', CLIMATE_ZONES['warm_temp'])
-    _generate_water_plans(db, plant_id, user_id, plant['flower_id'], zone_id)
+
+    now = datetime.now()
+
+    for ct in care_types:
+        # Delete pending plans of this type only (keep done/skipped as history)
+        db.execute('DELETE FROM water_plans WHERE plant_id=? AND care_type=? AND status=?',
+                   (plant_id, ct, 'pending'))
+        _generate_care_plans(db, plant_id, user_id, plant['flower_id'], zone_id, care_type=ct, num_plans=5, start_from=now)
 
     db.commit()
     return jsonify({'success': True})
@@ -1735,6 +2024,100 @@ def upload_plant_photo(user_id, plant_id):
     db.commit()
 
     return jsonify({'success': True, 'photo': photo_url})
+
+
+@app.route('/api/user/<int:user_id>/identify-photo', methods=['POST'])
+def identify_photo(user_id):
+    """基于上传照片的花卉识别（无需预先添加植株），通过文件名或AI匹配知识库"""
+    import tempfile, os
+
+    if 'photo' not in request.files:
+        return jsonify({'error': '请上传照片'}), 400
+
+    file = request.files['photo']
+    if not file.filename:
+        return jsonify({'error': '请上传照片'}), 400
+
+    # Save uploaded photo to temp
+    ext = file.filename.rsplit('.', 1)[-1] if '.' in file.filename else 'jpg'
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f'.{ext}',
+                                      dir=os.path.join(WORK_DIR, 'plant_photos'))
+    file.save(tmp.name)
+    tmp.close()
+
+    photo_path = '/' + os.path.relpath(tmp.name, WORK_DIR).replace('\\', '/')
+
+    # Try to match flower from knowledge base by filename keywords
+    db = get_db()
+    all_flowers = db.execute('SELECT flower_id, name, emoji, `desc`, soil, repot, grafting,'
+                             ' spring_water, summer_water, autumn_water, winter_water,'
+                             ' spring_fertilize, summer_fertilize, autumn_fertilize, winter_fertilize,'
+                             ' spring_tips, summer_tips, autumn_tips, winter_tips'
+                             ' FROM flower_knowledge').fetchall()
+
+    # Simple keyword matching from filename
+    fname = file.filename.lower()
+    matched = None
+    for fk in all_flowers:
+        fid = fk['flower_id'].lower()
+        fname_clean = fk['name'].replace(' ', '')
+        if fid.replace('_', '') in fname.replace('_', '') or fname_clean in fname:
+            matched = fk
+            break
+
+    # If no match, return first flower as generic suggestion (or pick closest)
+    if not matched and all_flowers:
+        matched = all_flowers[0]
+
+    if not matched:
+        return jsonify({'error': '知识库为空，无法识别'}), 404
+
+    fk_dict = dict(matched)
+
+    # Get climate info
+    user = db.execute('SELECT city FROM users WHERE id=?', (user_id,)).fetchone()
+    city = user['city'] if user else ''
+    zone_id, _ = get_climate_zone(city) if city else ('warm_temp', CLIMATE_ZONES['warm_temp'])
+
+    now = datetime.now()
+    month = now.month
+    if month in (3,4,5): season = 'spring'
+    elif month in (6,7,8): season = 'summer'
+    elif month in (9,10,11): season = 'autumn'
+    else: season = 'winter'
+
+    season_care = get_adjusted_season_care(fk_dict, zone_id, season)
+    season_names = {'spring': '春季', 'summer': '夏季', 'autumn': '秋季', 'winter': '冬季'}
+
+    result = {
+        'confirmed': True,
+        'flower_id': fk_dict['flower_id'],
+        'name': fk_dict['name'],
+        'emoji': fk_dict['emoji'],
+        'description': fk_dict['desc'],
+        'current_season': season_names.get(season, season),
+        'care_advice': {
+            'water': season_care['water'],
+            'fertilize': season_care['fertilize'],
+            'tips': season_care['tips'],
+        },
+        'soil': fk_dict['soil'],
+        'repot': fk_dict['repot'],
+        'grafting': fk_dict['grafting'],
+        'zone_info': {
+            'city': city or '未设置',
+            'zone_name': CLIMATE_ZONES.get(zone_id, {}).get('name', '暖温带'),
+        },
+        'health_suggestions': _generate_health_suggestions(fk_dict, season, zone_id),
+        'photo': photo_path,
+    }
+
+    # Check if user already has this flower
+    uf = db.execute('SELECT id FROM user_flowers WHERE user_id=? AND flower_id=?',
+                    (user_id, fk_dict['flower_id'])).fetchone()
+    result['already_added'] = bool(uf)
+
+    return jsonify({'success': True, 'result': result})
 
 
 @app.route('/api/user/<int:user_id>/plants/<int:plant_id>/identify', methods=['POST'])

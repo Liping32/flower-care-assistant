@@ -1087,7 +1087,7 @@ body {
   <div class="tab-nav">
     <button class="tab-btn active" onclick="switchTab('knowledge')" id="tabKnowledge">📖 养花知识</button>
     <button class="tab-btn" onclick="switchTab('myflowers')" id="tabMyflowers">🌺 我的花卉<span class="badge" id="myBadge" style="display:none">0</span></button>
-    <button class="tab-btn" onclick="switchTab('identify')" id="tabIdentify">🔍 识别</button>
+    <button class="tab-btn" onclick="switchTab('identify')" id="tabIdentify" style="display:none">🔍 识别</button>
     <button class="tab-btn" onclick="switchTab('reminders')" id="tabReminders">⏰ 养护提醒<span class="badge" id="reminderBadge" style="display:none">0</span></button>
   </div>
 
@@ -1156,7 +1156,7 @@ body {
   </div>
 
   <!-- Identify Tab -->
-  <div class="tab-content" id="contentIdentify">
+  <div class="tab-content" id="contentIdentify" style="display:none">
     <div style="margin-bottom:16px;font-size:16px;font-weight:600;">🔍 智能识别</div>
     <div style="text-align:center;padding:20px 0">
       <div id="identifyPreview" style="display:none;margin-bottom:12px">
@@ -1175,7 +1175,7 @@ body {
 
   <!-- Reminders Tab -->
   <div class="tab-content" id="contentReminders">
-    <div style="margin-bottom:16px;font-size:16px;font-weight:600;">📋 养护提醒</div>
+    <div style="margin-bottom:16px;font-size:16px;font-weight:600;display:flex;align-items:center;justify-content:space-between;">📋 养护提醒 <button onclick="renderReminders()" style="background:none;border:1px solid #ddd;border-radius:4px;font-size:12px;cursor:pointer;padding:2px 8px;color:#666;">🔄 刷新</button></div>
     <div id="reminderList"></div>
   </div>
 </div>
@@ -2606,9 +2606,7 @@ async function renderReminders() {
     const labels = { water: '浇水', fertilize: '施肥', repot: '换盆' };
 
     container.innerHTML = reminders.map(r => {
-      const photoSrc = r.plant_photo ? `/plant_photos/${r.plant_photo}` :
-                       r.flower_photo ? `/images/${r.flower_photo}` : '';
-      const photoHtml = photoSrc ? `<img src="${photoSrc}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;">` : '';
+      const photoHtml = '';
       const keptBadge = r.reminder_status === 'kept' ? '<span style="font-size:10px;background:#fff3e0;color:#e65100;padding:1px 5px;border-radius:8px;margin-left:4px;">保持</span>' : '';
 
       // All reminders are now plant-level with plan_id

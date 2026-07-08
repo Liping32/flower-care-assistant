@@ -694,22 +694,22 @@ body {
 }
 .profile-section {
   background: var(--card);
-  margin: 0 16px 12px;
+  margin: 0 16px 8px;
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   overflow: hidden;
 }
 .profile-section-title {
-  padding: 12px 16px 8px;
+  padding: 8px 16px 4px;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-light);
 }
 .profile-item {
-  padding: 14px 16px;
+  padding: 9px 16px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition: background 0.15s;
@@ -2788,6 +2788,10 @@ async function showMyProfile() {
         <div class="profile-item" style="cursor:default;opacity:0.5">
           <span class="pi-icon">📋</span><span class="pi-label">版本</span>
           <span class="pi-value" style="font-size:11px">v${data.version || 'unknown'}</span>
+        </div>
+        <div class="profile-item" style="cursor:default">
+          <span class="pi-icon">ℹ️</span><span class="pi-label">关于</span>
+          <span class="pi-value" style="font-size:12px">作者：李萍，基于TeleAgent开发</span>
         </div>
       </div>`;
     document.getElementById('profilePage').classList.add('show');

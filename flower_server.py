@@ -10,7 +10,10 @@ import re
 from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory, g
 
-WORK_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Auto-detect project directory: try parent dir first (local dev), then script dir (PA deployment)
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PARENT_DIR = os.path.dirname(_SCRIPT_DIR)
+WORK_DIR = _PARENT_DIR if os.path.exists(os.path.join(_PARENT_DIR, 'flower-care.html')) else _SCRIPT_DIR
 app = Flask(__name__, static_folder=WORK_DIR)
 
 DB_PATH = os.path.join(WORK_DIR, 'flower_care.db')
@@ -1559,11 +1562,13 @@ def complete_water_plan(user_id, plan_id):
         db.execute(f'UPDATE user_flowers SET {col}=? WHERE user_id=? AND flower_id=?',
                    (now_str, user_id, plan['flower_id']))
 
-    # Generate more future plans of the same care_type
+    # Generate more future plans: delete old pending plans and regenerate from today
+    db.execute('DELETE FROM water_plans WHERE plant_id=? AND care_type=? AND status=?',
+               (plan['plant_id'], care_type, 'pending'))
     user = db.execute('SELECT city FROM users WHERE id=?', (user_id,)).fetchone()
     city = user['city'] if user else ''
     zone_id, _ = get_climate_zone(city) if city else ('warm_temp', CLIMATE_ZONES['warm_temp'])
-    _generate_care_plans(db, plan['plant_id'], user_id, plan['flower_id'], zone_id, care_type=care_type, num_plans=5)
+    _generate_care_plans(db, plan['plant_id'], user_id, plan['flower_id'], zone_id, care_type=care_type, num_plans=5, start_from=datetime.now())
 
     db.commit()
     return jsonify({'success': True, 'actual_date': now_str, 'care_type': care_type})

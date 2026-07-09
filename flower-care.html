@@ -928,7 +928,12 @@ body {
 /* ===== My Plants (植株) ===== */
 .plant-section { margin-top: 8px; border-top: 1px dashed #e0e0e0; padding-top: 8px; }
 .plant-section-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.plant-section-header.collapsible { cursor:pointer; user-select:none; border-radius:6px; padding:4px; margin:-4px; }
+.plant-section-header.collapsible:hover { background:#f0f0f0; }
+.plant-section-header.collapsible:active { background:#e8e8e8; }
 .plant-section-title { font-size:13px; color:#666; font-weight:600; }
+.plant-collapse-arrow { font-size:11px; margin-left:4px; transition:transform .2s; display:inline-block; }
+.plant-collapse-arrow.collapsed { transform:rotate(-90deg); }
 .btn-add-plant { background:#e8f5e9; color:#2e7d32; border:1px dashed #a5d6a7; border-radius:6px; padding:3px 10px; font-size:12px; cursor:pointer; }
 .btn-add-plant:hover { background:#c8e6c9; }
 .plant-item { background:#fafafa; border-radius:8px; padding:8px 10px; margin-bottom:6px; border:1px solid #eee; }
@@ -1806,10 +1811,13 @@ async function renderMyFlowers() {
               <button class="btn-remove" onclick="removeMyFlower('${mf.flower_id}')">移除</button>
             </div>
           </div>
-          <div class="plant-section" onclick="event.stopPropagation()">
-            <div class="plant-section-header">
-              <span class="plant-section-title">🌱 我的植株 (${flowerPlants.length})</span>
-              <button class="btn-add-plant" onclick="showAddPlantDialog('${mf.flower_id}', this)">+ 添加植株</button>
+          <div class="plant-section">
+            <div class="plant-section-header${flowerPlants.length > 1 ? ' collapsible' : ''}"
+                 ${flowerPlants.length > 1 ? `onclick="togglePlantList('${mf.flower_id}')"` : ''}>
+              <span class="plant-section-title">
+                🌱 我的植株 (${flowerPlants.length})${flowerPlants.length > 1 ? '<span class="plant-collapse-arrow collapsed" id="arrow-' + mf.flower_id + '">▼</span>' : ''}
+              </span>
+              <button class="btn-add-plant" onclick="event.stopPropagation();showAddPlantDialog('${mf.flower_id}', this)">+ 添加植株</button>
             </div>
             <div class="add-plant-dialog" id="addPlant-${mf.flower_id}" style="display:none">
               <input class="add-plant-input" placeholder="给植株起个名字..." maxlength="20"
@@ -1817,7 +1825,7 @@ async function renderMyFlowers() {
               <button class="add-plant-confirm" onclick="confirmAddPlant('${mf.flower_id}',this.previousElementSibling)">确定</button>
               <button class="add-plant-cancel" onclick="hideAddPlantDialog('${mf.flower_id}')">取消</button>
             </div>
-            <div class="plant-list">${plantsHTML || '<div style="font-size:12px;color:#bbb;padding:4px 0">还没有植株，点击上方添加</div>'}</div>
+            <div class="plant-list" id="plantList-${mf.flower_id}" style="${flowerPlants.length > 1 ? 'display:none' : ''}">${plantsHTML || '<div style="font-size:12px;color:#bbb;padding:4px 0">还没有植株，点击上方添加</div>'}</div>
           </div>
         </div>`;
     }).join('');
@@ -1827,12 +1835,25 @@ async function renderMyFlowers() {
 }
 
 // ==================== MY PLANTS (植株管理) ====================
+function togglePlantList(flowerId) {
+  const list = document.getElementById('plantList-' + flowerId);
+  const arrow = document.getElementById('arrow-' + flowerId);
+  if (!list) return;
+  const isHidden = list.style.display === 'none';
+  list.style.display = isHidden ? '' : 'none';
+  if (arrow) arrow.classList.toggle('collapsed', !isHidden);
+}
+
 function showAddPlantDialog(flowerId, btn) {
   const dialog = document.getElementById('addPlant-' + flowerId);
   dialog.style.display = 'flex';
   dialog.querySelector('input').value = '';
   dialog.querySelector('input').focus();
   btn.style.display = 'none';
+  // 展开植株列表
+  const list = document.getElementById('plantList-' + flowerId);
+  const arrow = document.getElementById('arrow-' + flowerId);
+  if (list && list.style.display === 'none') { list.style.display = ''; if (arrow) arrow.classList.remove('collapsed'); }
 }
 function hideAddPlantDialog(flowerId) {
   const dialog = document.getElementById('addPlant-' + flowerId);

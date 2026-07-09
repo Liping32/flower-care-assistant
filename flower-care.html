@@ -2776,11 +2776,18 @@ async function showMyProfile() {
         </div>
       </div>
       <div class="profile-section">
-        <div class="profile-section-title">其他</div>
+        <div class="profile-section-title">配置</div>
         <div class="profile-item" onclick="openFlowerConfig()">
           <span class="pi-icon">🎨</span><span class="pi-label">花卉显示配置</span>
           <span class="pi-value">管理</span><span class="pi-arrow">▸</span>
         </div>
+        <div class="profile-item" onclick="openReminderConfig()">
+          <span class="pi-icon">🔔</span><span class="pi-label">提醒天数配置</span>
+          <span class="pi-value" id="remindDaysDisplay">水1/肥1/盆2天</span><span class="pi-arrow">▸</span>
+        </div>
+      </div>
+      <div class="profile-section">
+        <div class="profile-section-title">其他</div>
         <div class="profile-item" onclick="handleLogout(); closeMyProfile();">
           <span class="pi-icon">🚪</span><span class="pi-label" style="color:var(--danger)">退出登录</span>
           <span class="pi-arrow">▸</span>
@@ -2795,6 +2802,17 @@ async function showMyProfile() {
         </div>
       </div>`;
     document.getElementById('profilePage').classList.add('show');
+    // Load reminder config to display current value
+    try {
+      const rc = await api('/api/user/' + currentUser.id + '/reminder-config');
+      const el = document.getElementById('remindDaysDisplay');
+      if (el) {
+        const w = rc.water_remind_days || 1;
+        const f = rc.fertilize_remind_days || 1;
+        const r = rc.repot_remind_days || 2;
+        el.textContent = '\u6C34' + w + '/\u80A5' + f + '/\u76C6' + r + '\u5929';
+      }
+    } catch (e) {}
   } catch (e) {
     showToast('加载个人信息失败');
   }
@@ -3094,6 +3112,87 @@ async function saveFlowerConfig() {
     // Reload flowers to apply new config
     await loadFlowers();
     renderFlowerGrid();
+  } catch (e) {
+    showToast('保存失败');
+  }
+}
+
+// ==================== REMINDER DAYS CONFIG ====================
+async function openReminderConfig() {
+  if (!currentUser) return;
+  document.getElementById('pemTitle').textContent = '提醒天数配置';
+  try {
+    const data = await api('/api/user/' + currentUser.id + '/reminder-config');
+    const waterDays = data.water_remind_days || 1;
+    const fertilizeDays = data.fertilize_remind_days || 1;
+    const repotDays = data.repot_remind_days || 2;
+    renderReminderConfigUI(waterDays, fertilizeDays, repotDays);
+  } catch (e) {
+    showToast('加载配置失败');
+  }
+  document.getElementById('profileEditModal').classList.add('show');
+}
+
+function renderReminderConfigUI(waterDays, fertilizeDays, repotDays) {
+  const body = document.getElementById('pemBody');
+  body.innerHTML = `
+    <p style="font-size:12px;color:var(--text-light);margin-bottom:12px">设置提前多少天开始提醒浇水/施肥/换盆</p>
+    <div style="margin-bottom:18px">
+      <div style="font-size:14px;font-weight:600;margin-bottom:8px">💧 浇水提醒天数</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;color:var(--text-light)">提前</span>
+        <input type="range" id="rcWaterDays" min="1" max="10" value="${waterDays}"
+          oninput="document.getElementById('rcWaterVal').textContent=this.value"
+          style="flex:1;accent-color:var(--primary)">
+        <span id="rcWaterVal" style="font-size:15px;font-weight:600;min-width:20px;text-align:center">${waterDays}</span>
+        <span style="font-size:13px;color:var(--text-light)">天</span>
+      </div>
+      <p style="font-size:11px;color:var(--text-light);margin-top:4px">浇水计划到期前 ${waterDays} 天开始提醒</p>
+    </div>
+    <div style="margin-bottom:18px">
+      <div style="font-size:14px;font-weight:600;margin-bottom:8px">🧪 施肥提醒天数</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;color:var(--text-light)">提前</span>
+        <input type="range" id="rcFertilizeDays" min="1" max="10" value="${fertilizeDays}"
+          oninput="document.getElementById('rcFertVal').textContent=this.value"
+          style="flex:1;accent-color:var(--primary)">
+        <span id="rcFertVal" style="font-size:15px;font-weight:600;min-width:20px;text-align:center">${fertilizeDays}</span>
+        <span style="font-size:13px;color:var(--text-light)">天</span>
+      </div>
+      <p style="font-size:11px;color:var(--text-light);margin-top:4px">施肥计划到期前 ${fertilizeDays} 天开始提醒</p>
+    </div>
+    <div style="margin-bottom:18px">
+      <div style="font-size:14px;font-weight:600;margin-bottom:8px">🪴 换盆提醒天数</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;color:var(--text-light)">提前</span>
+        <input type="range" id="rcRepotDays" min="1" max="10" value="${repotDays}"
+          oninput="document.getElementById('rcRepotVal').textContent=this.value"
+          style="flex:1;accent-color:var(--primary)">
+        <span id="rcRepotVal" style="font-size:15px;font-weight:600;min-width:20px;text-align:center">${repotDays}</span>
+        <span style="font-size:13px;color:var(--text-light)">天</span>
+      </div>
+      <p style="font-size:11px;color:var(--text-light);margin-top:4px">换盆计划到期前 ${repotDays} 天开始提醒</p>
+    </div>
+    <div class="fc-save-bar">
+      <button class="fc-btn-cancel" onclick="closeProfileEdit()">取消</button>
+      <button class="fc-btn-save" onclick="saveReminderConfig()">保存</button>
+    </div>`;
+}
+
+async function saveReminderConfig() {
+  const waterDays = parseInt(document.getElementById('rcWaterDays').value) || 1;
+  const fertilizeDays = parseInt(document.getElementById('rcFertilizeDays').value) || 1;
+  const repotDays = parseInt(document.getElementById('rcRepotDays').value) || 2;
+  try {
+    await api('/api/user/' + currentUser.id + '/reminder-config', {
+      method: 'PUT',
+      body: { water_remind_days: waterDays, fertilize_remind_days: fertilizeDays, repot_remind_days: repotDays }
+    });
+    showToast('提醒配置已保存');
+    // Update display
+    const el = document.getElementById('remindDaysDisplay');
+    if (el) el.textContent = '水' + waterDays + '/肥' + fertilizeDays + '/盆' + repotDays + '天';
+    closeProfileEdit();
   } catch (e) {
     showToast('保存失败');
   }

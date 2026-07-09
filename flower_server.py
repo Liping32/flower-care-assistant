@@ -173,6 +173,20 @@ def init_db():
     except Exception:
         pass
 
+    # 迁移：给 users 表添加提醒天数字段
+    try:
+        db.execute('ALTER TABLE users ADD COLUMN water_remind_days INTEGER DEFAULT 1')
+    except Exception:
+        pass
+    try:
+        db.execute('ALTER TABLE users ADD COLUMN fertilize_remind_days INTEGER DEFAULT 1')
+    except Exception:
+        pass
+    try:
+        db.execute('ALTER TABLE users ADD COLUMN repot_remind_days INTEGER DEFAULT 2')
+    except Exception:
+        pass
+
     # 迁移：给 water_plans 表添加 care_type 字段（water/fertilize/repot）
     try:
         db.execute('ALTER TABLE water_plans ADD COLUMN care_type TEXT DEFAULT "water"')
@@ -704,6 +718,37 @@ def update_flower_config(user_id):
     db.commit()
     return jsonify({'success': True})
 
+# ---------- Reminder Config ----------
+@app.route('/api/user/<int:user_id>/reminder-config', methods=['GET'])
+def get_reminder_config(user_id):
+    """获取用户的提醒天数配置"""
+    db = get_db()
+    user = db.execute('SELECT water_remind_days, fertilize_remind_days, repot_remind_days FROM users WHERE id=?', (user_id,)).fetchone()
+    if not user:
+        return jsonify({'error': '用户不存在'}), 404
+    return jsonify({
+        'water_remind_days': user['water_remind_days'] if 'water_remind_days' in user.keys() and user['water_remind_days'] else 1,
+        'fertilize_remind_days': user['fertilize_remind_days'] if 'fertilize_remind_days' in user.keys() and user['fertilize_remind_days'] else 1,
+        'repot_remind_days': user['repot_remind_days'] if 'repot_remind_days' in user.keys() and user['repot_remind_days'] else 2,
+    })
+
+@app.route('/api/user/<int:user_id>/reminder-config', methods=['PUT'])
+def update_reminder_config(user_id):
+    """更新用户的提醒天数配置"""
+    data = request.json
+    water_days = data.get('water_remind_days', 1)
+    fertilize_days = data.get('fertilize_remind_days', 1)
+    repot_days = data.get('repot_remind_days', 2)
+    # Clamp to 1-10
+    water_days = max(1, min(10, int(water_days)))
+    fertilize_days = max(1, min(10, int(fertilize_days)))
+    repot_days = max(1, min(10, int(repot_days)))
+    db = get_db()
+    db.execute('UPDATE users SET water_remind_days=?, fertilize_remind_days=?, repot_remind_days=? WHERE id=?',
+               (water_days, fertilize_days, repot_days, user_id))
+    db.commit()
+    return jsonify({'success': True, 'water_remind_days': water_days, 'fertilize_remind_days': fertilize_days, 'repot_remind_days': repot_days})
+
 # ---------- Flower Knowledge (public) ----------
 @app.route('/api/flowers', methods=['GET'])
 def get_flowers():
@@ -997,10 +1042,17 @@ def update_care_log_date(user_id, log_id):
 # ---------- Reminders ----------
 @app.route('/api/user/<int:user_id>/reminders', methods=['GET'])
 def get_reminders(user_id):
-    """基于植株养护计划的提醒：浇水/施肥<=1天提醒，换盆<=2天提醒，过期每日提醒，支持确认/保持"""
+    """基于植株养护计划的提醒：浇水/施肥/换盆按用户配置的提醒天数提前提醒，过期每日提醒，支持确认/保持"""
     db = get_db()
     today_dt = datetime.now().date()
     today_str = today_dt.strftime('%Y-%m-%d')
+
+    # 读取用户提醒天数配置
+    user_cfg = db.execute('SELECT water_remind_days, fertilize_remind_days, repot_remind_days FROM users WHERE id=?', (user_id,)).fetchone()
+    water_remind_days = user_cfg['water_remind_days'] if user_cfg and 'water_remind_days' in user_cfg.keys() and user_cfg['water_remind_days'] else 1
+    fertilize_remind_days = user_cfg['fertilize_remind_days'] if user_cfg and 'fertilize_remind_days' in user_cfg.keys() and user_cfg['fertilize_remind_days'] else 1
+    repot_remind_days = user_cfg['repot_remind_days'] if user_cfg and 'repot_remind_days' in user_cfg.keys() and user_cfg['repot_remind_days'] else 2
+    remind_threshold = {'water': water_remind_days, 'fertilize': fertilize_remind_days, 'repot': repot_remind_days}
 
     reminders = []
 
@@ -1066,6 +1118,8 @@ def get_reminders(user_id):
                 'reminder_status': reminder_status,
             }
 
+            threshold = remind_threshold.get(ct, 1)
+
             if days_until < 0:
                 item['status'] = 'overdue'
                 item['msg'] = f'已超过{label}日期{abs(days_until)}天'
@@ -1074,15 +1128,15 @@ def get_reminders(user_id):
                 item['status'] = 'today'
                 item['msg'] = f'今天需要{label}'
                 item['days'] = 0
-            elif days_until == 1:
+            elif days_until <= threshold:
                 item['status'] = 'soon'
-                item['msg'] = f'明天需要{label}'
-                item['days'] = 1
-            elif days_until == 2 and ct == 'repot':
-                # 换盆保留后天提醒，浇水/施肥仅<=1天提醒
-                item['status'] = 'soon'
-                item['msg'] = f'后天需要{label}'
-                item['days'] = 2
+                if days_until == 1:
+                    item['msg'] = f'明天需要{label}'
+                elif days_until == 2:
+                    item['msg'] = f'后天需要{label}'
+                else:
+                    item['msg'] = f'{days_until}天后需要{label}'
+                item['days'] = days_until
             else:
                 # 还早，不显示提醒
                 continue

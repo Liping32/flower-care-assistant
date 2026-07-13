@@ -936,30 +936,27 @@ body {
 .plant-collapse-arrow.collapsed { transform:rotate(-90deg); }
 .btn-add-plant { background:#e8f5e9; color:#2e7d32; border:1px dashed #a5d6a7; border-radius:6px; padding:3px 10px; font-size:12px; cursor:pointer; }
 .btn-add-plant:hover { background:#c8e6c9; }
-.plant-item { background:#fafafa; border-radius:8px; padding:8px 10px; margin-bottom:6px; border:1px solid #eee; }
-.plant-item-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; }
-.plant-name { font-size:14px; font-weight:600; color:#333; display:flex; align-items:center; gap:4px; }
-.plant-name-input { border:1px solid #ddd; border-radius:4px; padding:2px 6px; font-size:13px; width:120px; }
-.plant-badges { display:flex; gap:4px; }
-.plant-badge { font-size:11px; padding:1px 6px; border-radius:10px; }
-.plant-badge.overdue { background:#ffebee; color:#c62828; }
-.plant-badge.today { background:#fff3e0; color:#e65100; }
-.plant-badge.ok { background:#e8f5e9; color:#2e7d32; }
-.plant-actions { display:flex; gap:4px; }
-/* Plant item simplified layout */
-.plant-row1 { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
-.plant-row1 img { width:32px; height:32px; border-radius:50%; object-fit:cover; flex-shrink:0; }
-.plant-info { flex:1; min-width:0; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-.plant-name { font-size:14px; font-weight:500; color:#333; }
-.plant-date { font-size:11px; color:#999; }
-.btn-plant-edit { border:none; background:none; font-size:16px; cursor:pointer; padding:2px 6px; border-radius:6px; color:#999; flex-shrink:0; }
-.btn-plant-edit:hover { background:#f0f0f0; color:#4caf50; }
-.btn-plant-remove { border:none; background:none; font-size:14px; cursor:pointer; padding:2px 6px; border-radius:6px; color:#999; flex-shrink:0; }
-.btn-plant-remove:hover { background:#f0f0f0; color:#e53935; }
-.plant-row2 { display:flex; align-items:center; gap:10px; padding-left:40px; }
-.plant-last-action { font-size:12px; color:#666; white-space:nowrap; }
-.btn-view-care { border:none; border-radius:12px; padding:2px 12px; font-size:12px; cursor:pointer; background:#4caf50; color:white; margin-left:auto; }
-.btn-view-care:hover { background:#388e3c; }
+/* Plant item - grid card layout */
+.plant-list { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.plant-card { background:#fafafa; border-radius:10px; border:1px solid #eee; overflow:hidden; cursor:pointer; position:relative; transition:box-shadow .2s,transform .15s; -webkit-tap-highlight-color:transparent; }
+.plant-card:active { transform:scale(0.97); box-shadow:0 1px 4px rgba(0,0,0,0.08); }
+.plant-card-photo { width:100%; aspect-ratio:1; object-fit:cover; display:block; background:#e8f5e9; }
+.plant-card-placeholder { width:100%; aspect-ratio:1; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#e8f5e9 0%,#c8e6c9 100%); font-size:36px; }
+.plant-card-info { padding:6px 8px 8px; }
+.plant-card-name { font-size:12px; font-weight:600; color:#333; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.3; }
+.plant-card-status { font-size:10px; color:#888; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+.plant-card-status .care-dot { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:2px; vertical-align:middle; }
+.plant-card-status .care-dot.water { background:#4caf50; }
+.plant-card-status .care-dot.fertilize { background:#ff9800; }
+.plant-card-actions { position:absolute; top:4px; right:4px; display:flex; gap:2px; opacity:0.5; transition:opacity .2s; }
+.plant-card:hover .plant-card-actions { opacity:1; }
+.plant-card-action-btn { width:24px; height:24px; border-radius:50%; border:none; background:rgba(255,255,255,0.85); font-size:12px; cursor:pointer; display:flex; align-items:center; justify-content:center; color:#666; backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); }
+.plant-card-action-btn:hover { background:rgba(255,255,255,0.95); }
+.plant-card-action-btn.del:hover { color:#e53935; }
+.plant-card-add { background:#fafafa; border-radius:10px; border:1px dashed #c8e6c9; overflow:hidden; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; aspect-ratio:1; transition:background .2s; color:#66bb6a; }
+.plant-card-add:active { background:#e8f5e9; }
+.plant-card-add-icon { font-size:28px; line-height:1; }
+.plant-card-add-text { font-size:11px; margin-top:4px; color:#999; }
 
 /* Care sections in plant detail modal */
 .care-section { margin-bottom:14px; border:1px solid #eee; border-radius:10px; padding:10px 12px; }
@@ -1232,6 +1229,8 @@ body {
   <div class="lightbox-counter" id="lightboxCounter"></div>
 </div>
 
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
 // ==================== API LAYER ====================
 const API = window.location.protocol === 'file:' ? 'http://localhost:8765' : '';
@@ -1777,26 +1776,35 @@ async function renderMyFlowers() {
       let plantsHTML = '';
       if (flowerPlants.length > 0) {
         plantsHTML = flowerPlants.map(p => {
-          const thumbHTML = p.photo ? `<img src="${p.photo}" class="plant-thumb" alt="${p.plant_name}" onerror="this.style.display='none'">` : '';
+          const pName = p.plant_name.replace(/'/g, "\\'");
+          const waterDate = p.last_water_date ? p.last_water_date.slice(5,10) : '';
+          const fertDate = p.last_fertilize_date ? p.last_fertilize_date.slice(5,10) : '';
+          const statusParts = [];
+          if (waterDate) statusParts.push(`<span class="care-dot water"></span>💧${waterDate}`);
+          if (fertDate) statusParts.push(`<span class="care-dot fertilize"></span>🧪${fertDate}`);
+          const statusHTML = statusParts.length ? statusParts.join(' ') : '<span style="color:#bbb">暂无养护</span>';
+          const photoHTML = p.photo
+            ? `<img src="${p.photo}" class="plant-card-photo" alt="${p.plant_name}" onerror="this.outerHTML='<div class=\\'plant-card-placeholder\\'>${mf.emoji||'🌱'}</div>'">`
+            : `<div class="plant-card-placeholder">${mf.emoji||'🌱'}</div>`;
           return `
-          <div class="plant-item">
-            <div class="plant-row1">
-              ${thumbHTML}
-              <div class="plant-info">
-                <span class="plant-name">${p.plant_name}</span>
-                <span class="plant-date">加入时间：${(p.created_at||'').slice(0,10)}</span>
-              </div>
-              <button class="btn-plant-edit" onclick="showPlantEditDialog(${p.id},'${p.plant_name.replace(/'/g, "\\'")}','${(p.created_at||'').slice(0,10)}')">✏️</button>
-              <button class="btn-plant-remove" title="移除" onclick="removePlant(${p.id},'${p.plant_name.replace(/'/g, "\\'")}')">🗑</button>
+          <div class="plant-card" onclick="openPlantDetail(${p.id}, '${mf.flower_id}', '${pName}')">
+            ${photoHTML}
+            <div class="plant-card-actions" onclick="event.stopPropagation()">
+              <button class="plant-card-action-btn" onclick="showPlantEditDialog(${p.id},'${pName}','${(p.created_at||'').slice(0,10)}')">✏️</button>
+              <button class="plant-card-action-btn del" onclick="removePlant(${p.id},'${pName}')">🗑</button>
             </div>
-            <div class="plant-row2">
-              <span class="plant-last-action">最近浇水：${p.last_water_date ? p.last_water_date.slice(5,10) : '未记录'}</span>
-              <span class="plant-last-action">最近施肥：${p.last_fertilize_date ? p.last_fertilize_date.slice(5,10) : '未记录'}</span>
-              <button class="btn-view-care" onclick="openPlantDetail(${p.id}, '${mf.flower_id}', '${p.plant_name.replace(/'/g, "\\'")}')">养护</button>
+            <div class="plant-card-info">
+              <div class="plant-card-name">${p.plant_name}</div>
+              <div class="plant-card-status">${statusHTML}</div>
             </div>
           </div>`;
         }).join('');
       }
+      // 添加植株卡片（+按钮）
+      const addCardHTML = `<div class="plant-card-add" onclick="showAddPlantDialog('${mf.flower_id}', null)">
+        <div class="plant-card-add-icon">+</div>
+        <div class="plant-card-add-text">添加</div>
+      </div>`;
 
       return `
         <div class="my-flower-item">
@@ -1817,15 +1825,8 @@ async function renderMyFlowers() {
               <span class="plant-section-title">
                 🌱 我的植株 (${flowerPlants.length})${flowerPlants.length > 1 ? '<span class="plant-collapse-arrow collapsed" id="arrow-' + mf.flower_id + '">▼</span>' : ''}
               </span>
-              <button class="btn-add-plant" onclick="event.stopPropagation();showAddPlantDialog('${mf.flower_id}', this)">+ 添加植株</button>
             </div>
-            <div class="add-plant-dialog" id="addPlant-${mf.flower_id}" style="display:none">
-              <input class="add-plant-input" placeholder="给植株起个名字..." maxlength="20"
-                     onkeydown="if(event.key==='Enter')confirmAddPlant('${mf.flower_id}',this)">
-              <button class="add-plant-confirm" onclick="confirmAddPlant('${mf.flower_id}',this.previousElementSibling)">确定</button>
-              <button class="add-plant-cancel" onclick="hideAddPlantDialog('${mf.flower_id}')">取消</button>
-            </div>
-            <div class="plant-list" id="plantList-${mf.flower_id}" style="${flowerPlants.length > 1 ? 'display:none' : ''}">${plantsHTML || '<div style="font-size:12px;color:#bbb;padding:4px 0">还没有植株，点击上方添加</div>'}</div>
+            <div class="plant-list" id="plantList-${mf.flower_id}" style="${flowerPlants.length > 1 ? 'display:none' : ''}">${plantsHTML}${addCardHTML}</div>
           </div>
         </div>`;
     }).join('');
@@ -1844,33 +1845,19 @@ function togglePlantList(flowerId) {
   if (arrow) arrow.classList.toggle('collapsed', !isHidden);
 }
 
-function showAddPlantDialog(flowerId, btn) {
-  const dialog = document.getElementById('addPlant-' + flowerId);
-  dialog.style.display = 'flex';
-  dialog.querySelector('input').value = '';
-  dialog.querySelector('input').focus();
-  btn.style.display = 'none';
+async function showAddPlantDialog(flowerId, btn) {
   // 展开植株列表
   const list = document.getElementById('plantList-' + flowerId);
   const arrow = document.getElementById('arrow-' + flowerId);
   if (list && list.style.display === 'none') { list.style.display = ''; if (arrow) arrow.classList.remove('collapsed'); }
-}
-function hideAddPlantDialog(flowerId) {
-  const dialog = document.getElementById('addPlant-' + flowerId);
-  dialog.style.display = 'none';
-  const prevBtn = dialog.parentElement.querySelector('.btn-add-plant');
-  if (prevBtn) prevBtn.style.display = '';
-}
-
-async function confirmAddPlant(flowerId, inputEl) {
-  const name = inputEl.value.trim();
-  if (!name) { showToast('请输入植株名称'); return; }
+  const name = prompt('请输入植株名称:');
+  if (!name || !name.trim()) return;
   try {
     await api(`/api/user/${currentUser.id}/plants`, {
       method: 'POST',
-      body: { flower_id: flowerId, plant_name: name }
+      body: { flower_id: flowerId, plant_name: name.trim() }
     });
-    showToast(`🌱 植株「${name}」已添加，养护计划已自动生成`);
+    showToast(`🌱 植株「${name.trim()}」已添加，养护计划已自动生成`);
     renderMyFlowers();
   } catch(e) {
     showToast(e.message);
@@ -1979,7 +1966,7 @@ async function openPlantDetail(plantId, flowerId, plantName) {
       <div class="plant-photo-area" id="plantPhotoArea">
         ${plantInfo && plantInfo.photo ? `
           <img src="${plantInfo.photo}" class="plant-photo-large" alt="${plantName}"
-               onerror="this.parentElement.innerHTML='<div class=\\'plant-photo-placeholder\\' onclick=\\'triggerPhotoUpload(${plantId})\\'><div class=\\'icon\\'>📷</div><div class=\\'text\\'>点击上传照片</div></div>'">
+               onerror="this.outerHTML='<div class=\\'plant-photo-placeholder\\' onclick=\\'triggerPhotoUpload(${plantId})\\'><div class=\\'icon\\'>📷</div><div class=\\'text\\'>点击上传照片</div></div>'">
           <div class="plant-photo-btns">
             <button class="btn-photo-action btn-upload-photo" onclick="triggerPhotoUpload(${plantId})">📷 更换照片</button>
           </div>
@@ -2806,6 +2793,14 @@ async function showMyProfile() {
           <span class="pi-icon">🔔</span><span class="pi-label">提醒天数配置</span>
           <span class="pi-value" id="remindDaysDisplay">水1/肥1/盆2天</span><span class="pi-arrow">▸</span>
         </div>
+        <div class="profile-item" onclick="openBackupDialog()">
+          <span class="pi-icon">💾</span><span class="pi-label">数据备份</span>
+          <span class="pi-arrow">▸</span>
+        </div>
+        <div class="profile-item" onclick="openRestoreDialog()">
+          <span class="pi-icon">📂</span><span class="pi-label">数据恢复</span>
+          <span class="pi-arrow">▸</span>
+        </div>
       </div>
       <div class="profile-section">
         <div class="profile-section-title">其他</div>
@@ -3216,6 +3211,283 @@ async function saveReminderConfig() {
     closeProfileEdit();
   } catch (e) {
     showToast('保存失败');
+  }
+}
+
+// ==================== BACKUP & RESTORE ====================
+let _backupStats = null;
+
+async function openBackupDialog() {
+  if (!currentUser) return;
+  document.getElementById('pemTitle').textContent = '数据备份';
+  // 先查询数据量
+  const body = document.getElementById('pemBody');
+  body.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-light)">统计中...</div>';
+  document.getElementById('profileEditModal').classList.add('show');
+  try {
+    const pData = await api('/api/user/' + currentUser.id + '/plants');
+    const fData = await api('/api/user/' + currentUser.id + '/flowers');
+    const plantCount = (pData.plants || []).length;
+    const flowerCount = (fData.flowers || []).length;
+    const logData = await api('/api/user/' + currentUser.id + '/care-logs');
+    const logCount = (logData.logs || []).length;
+    const photoCount = (pData.plants || []).filter(p => p.photo).length;
+    renderBackupUI(flowerCount, plantCount, logCount, photoCount);
+  } catch (e) {
+    body.innerHTML = '<div style="text-align:center;padding:20px;color:var(--danger)">加载失败</div>';
+  }
+}
+
+function renderBackupUI(flowerCount, plantCount, logCount, photoCount) {
+  const body = document.getElementById('pemBody');
+  body.innerHTML = `
+    <p style="font-size:12px;color:var(--text-light);margin-bottom:12px">选择要备份的内容，下载为 ZIP 文件</p>
+    <div style="margin-bottom:10px">
+      <label style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0;cursor:pointer">
+        <input type="checkbox" id="bkFlowers" checked style="accent-color:var(--primary);width:18px;height:18px">
+        <span style="font-size:14px">🌸 花卉</span>
+        <span style="margin-left:auto;font-size:12px;color:var(--text-light)">${flowerCount} 项</span>
+      </label>
+    </div>
+    <div style="margin-bottom:10px">
+      <label style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0;cursor:pointer">
+        <input type="checkbox" id="bkPlants" checked style="accent-color:var(--primary);width:18px;height:18px">
+        <span style="font-size:14px">🌱 植株</span>
+        <span style="margin-left:auto;font-size:12px;color:var(--text-light)">${plantCount} 项</span>
+      </label>
+    </div>
+    <div style="margin-bottom:10px">
+      <label style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0;cursor:pointer">
+        <input type="checkbox" id="bkLogs" checked style="accent-color:var(--primary);width:18px;height:18px">
+        <span style="font-size:14px">📋 养护记录</span>
+        <span style="margin-left:auto;font-size:12px;color:var(--text-light)">${logCount} 条</span>
+      </label>
+    </div>
+    <div style="margin-bottom:10px">
+      <label style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0;cursor:pointer">
+        <input type="checkbox" id="bkPhotos" checked style="accent-color:var(--primary);width:18px;height:18px" onchange="onBkPhotosChange()">
+        <span style="font-size:14px">📷 植株照片</span>
+        <span style="margin-left:auto;font-size:12px;color:var(--text-light)">${photoCount} 张</span>
+      </label>
+    </div>
+    <p style="font-size:11px;color:var(--text-light);margin-top:8px">提示：植株照片依赖植株，勾选照片时自动勾选植株</p>
+    <div class="fc-save-bar">
+      <button class="fc-btn-cancel" onclick="closeProfileEdit()">取消</button>
+      <button class="fc-btn-save" id="bkBtn" onclick="doBackup()">备份</button>
+    </div>`;
+}
+
+function onBkPhotosChange() {
+  const photos = document.getElementById('bkPhotos');
+  const plants = document.getElementById('bkPlants');
+  if (photos.checked) plants.checked = true;
+}
+
+async function doBackup() {
+  if (!currentUser) return;
+  const btn = document.getElementById('bkBtn');
+  btn.disabled = true;
+  btn.textContent = '备份中...';
+  try {
+    const result = await api('/api/user/' + currentUser.id + '/backup', {
+      method: 'POST',
+      body: {
+        include_flowers: document.getElementById('bkFlowers').checked,
+        include_plants: document.getElementById('bkPlants').checked,
+        include_care_logs: document.getElementById('bkLogs').checked,
+        include_photos: document.getElementById('bkPhotos').checked && document.getElementById('bkPlants').checked
+      }
+    });
+    // 用 JSZip 打包
+    const zip = new JSZip();
+    zip.file('backup.json', JSON.stringify(result.backup, null, 2));
+    // 添加照片
+    if (result.photos) {
+      for (const [path, b64] of Object.entries(result.photos)) {
+        zip.file(path.charAt(0) === '/' ? path.substring(1) : path, b64, {base64: true});
+      }
+    }
+    const blob = await zip.generateAsync({type: 'blob'});
+    // 下载
+    const ts = new Date().toISOString().slice(0,10).replace(/-/g,'');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'flower_care_backup_' + ts + '.zip';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showToast('备份成功');
+    closeProfileEdit();
+  } catch (e) {
+    showToast('备份失败: ' + (e.message || '未知错误'));
+    btn.disabled = false;
+    btn.textContent = '备份';
+  }
+}
+
+// ---------- 恢复 ----------
+let _restoreBackup = null;
+
+function openRestoreDialog() {
+  if (!currentUser) return;
+  _restoreBackup = null;
+  document.getElementById('pemTitle').textContent = '数据恢复';
+  const body = document.getElementById('pemBody');
+  body.innerHTML = `
+    <p style="font-size:12px;color:var(--text-light);margin-bottom:12px">选择备份文件（.zip）</p>
+    <div style="border:2px dashed #ddd;border-radius:8px;padding:16px;text-align:center;cursor:pointer;margin-bottom:12px"
+         onclick="document.getElementById('restoreFileInput').click()">
+      <div style="font-size:24px;margin-bottom:4px">📁</div>
+      <div style="font-size:13px;color:var(--text-light)" id="restoreFileName">点击选择备份文件</div>
+      <input type="file" id="restoreFileInput" accept=".zip" style="display:none" onchange="onRestoreFileSelected(this)">
+    </div>
+    <div id="restoreInfo" style="display:none"></div>
+    <div id="restoreOptions" style="display:none"></div>
+    <div class="fc-save-bar" id="restoreBar" style="display:none">
+      <button class="fc-btn-cancel" onclick="closeProfileEdit()">取消</button>
+      <button class="fc-btn-save" id="restoreBtn" onclick="doRestore()">恢复</button>
+    </div>`;
+  document.getElementById('profileEditModal').classList.add('show');
+}
+
+async function onRestoreFileSelected(input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  document.getElementById('restoreFileName').textContent = file.name;
+
+  try {
+    const zip = await JSZip.loadAsync(file);
+    // 读取 backup.json
+    const jsonStr = await zip.file('backup.json').async('string');
+    _restoreBackup = JSON.parse(jsonStr);
+
+    // 统计照片数
+    let photoCount = 0;
+    zip.forEach(function(relativePath, zipEntry) {
+      if (!zipEntry.dir && relativePath.startsWith('plant_photos/')) photoCount++;
+    });
+
+    const d = _restoreBackup.data || {};
+    const info = document.getElementById('restoreInfo');
+    info.style.display = '';
+    info.innerHTML = `
+      <div style="background:#f8f9fa;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px">
+        <div style="margin-bottom:4px"><strong>用户：</strong>${_restoreBackup.username || '未知'}</div>
+        <div><strong>导出时间：</strong>${_restoreBackup.exported_at || '未知'}</div>
+      </div>`;
+
+    const opts = document.getElementById('restoreOptions');
+    opts.style.display = '';
+    const fc = (d.flowers || []).length;
+    const pc = (d.plants || []).length;
+    const lc = (d.care_logs || []).length;
+    opts.innerHTML = `
+      ${fc > 0 ? `<label style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0;cursor:pointer">
+        <input type="checkbox" class="rc-check" data-type="flowers" checked style="accent-color:var(--primary);width:18px;height:18px">
+        <span style="font-size:14px">🌸 花卉</span>
+        <span style="margin-left:auto;font-size:12px;color:var(--text-light)">${fc} 项</span>
+      </label>` : ''}
+      ${pc > 0 ? `<label style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0;cursor:pointer">
+        <input type="checkbox" class="rc-check" data-type="plants" checked style="accent-color:var(--primary);width:18px;height:18px" onchange="onRestorePhotosChange()">
+        <span style="font-size:14px">🌱 植株</span>
+        <span style="margin-left:auto;font-size:12px;color:var(--text-light)">${pc} 项</span>
+      </label>` : ''}
+      ${lc > 0 ? `<label style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0;cursor:pointer">
+        <input type="checkbox" class="rc-check" data-type="care_logs" checked style="accent-color:var(--primary);width:18px;height:18px">
+        <span style="font-size:14px">📋 养护记录</span>
+        <span style="margin-left:auto;font-size:12px;color:var(--text-light)">${lc} 条</span>
+      </label>` : ''}
+      ${photoCount > 0 ? `<label style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0;cursor:pointer">
+        <input type="checkbox" class="rc-check" data-type="photos" checked style="accent-color:var(--primary);width:18px;height:18px" onchange="onRestorePhotosChange()">
+        <span style="font-size:14px">📷 植株照片</span>
+        <span style="margin-left:auto;font-size:12px;color:var(--text-light)">${photoCount} 张</span>
+      </label>` : ''}
+      <p style="font-size:11px;color:var(--danger);margin-top:8px">⚠ 恢复将覆盖当前同类数据</p>`;
+
+    document.getElementById('restoreBar').style.display = '';
+    // 存 zip 引用供恢复用
+    _restoreBackup._zip = zip;
+    _restoreBackup._photoCount = photoCount;
+  } catch (e) {
+    document.getElementById('restoreInfo').style.display = '';
+    document.getElementById('restoreInfo').innerHTML = '<div style="color:var(--danger);font-size:13px;padding:8px">文件解析失败：' + (e.message||'格式错误') + '</div>';
+  }
+}
+
+function onRestorePhotosChange() {
+  const checks = document.querySelectorAll('.rc-check');
+  let plantsChecked = false, photosChecked = false;
+  checks.forEach(c => {
+    if (c.dataset.type === 'plants') plantsChecked = c.checked;
+    if (c.dataset.type === 'photos') photosChecked = c.checked;
+  });
+  if (photosChecked && !plantsChecked) {
+    checks.forEach(c => { if (c.dataset.type === 'plants') c.checked = true; });
+  }
+}
+
+async function doRestore() {
+  if (!_restoreBackup) return;
+  const checks = document.querySelectorAll('.rc-check');
+  const opts = {};
+  checks.forEach(c => { opts[c.dataset.type] = c.checked; });
+
+  if (!confirm('确认恢复？当前同类数据将被覆盖。')) return;
+
+  const btn = document.getElementById('restoreBtn');
+  btn.disabled = true;
+  btn.textContent = '恢复中...';
+
+  try {
+    // 如果选了照片，从 ZIP 中提取 base64
+    let photos = {};
+    if (opts.photos && _restoreBackup._zip) {
+      const entries = [];
+      _restoreBackup._zip.forEach(function(relativePath, zipEntry) {
+        if (!zipEntry.dir && relativePath.startsWith('plant_photos/')) {
+          entries.push({path: '/' + relativePath, entry: zipEntry});
+        }
+      });
+      for (const e of entries) {
+        const b64 = await e.entry.async('base64');
+        photos[e.path] = b64;
+      }
+    }
+
+    // 发送备份数据时排除 _zip 等 JSZip 对象（不可序列化）
+    const { _zip, _photoCount, ...backupPayload } = _restoreBackup;
+    const result = await api('/api/user/' + currentUser.id + '/restore', {
+      method: 'POST',
+      body: {
+        backup_data: backupPayload,
+        include_flowers: !!opts.flowers,
+        include_plants: !!opts.plants,
+        include_care_logs: !!opts.care_logs,
+        include_photos: !!opts.photos && !!opts.plants,
+        photos: photos
+      }
+    });
+
+    if (result.success) {
+      const r = result.restored;
+      let msg = '恢复完成：';
+      const parts = [];
+      if (r.flowers !== undefined) parts.push('花卉' + r.flowers + '项');
+      if (r.plants !== undefined) parts.push('植株' + r.plants + '项');
+      if (r.care_logs !== undefined) parts.push('记录' + r.care_logs + '条');
+      if (r.photos !== undefined) parts.push('照片' + r.photos + '张');
+      msg += parts.join('、');
+      if (result.warnings && result.warnings.length > 0) {
+        msg += '\\n警告：' + result.warnings.join('；');
+      }
+      showToast(msg);
+      closeProfileEdit();
+    } else {
+      showToast('恢复失败');
+    }
+  } catch (e) {
+    showToast('恢复失败: ' + (e.message || '未知错误'));
+    btn.disabled = false;
+    btn.textContent = '恢复';
   }
 }
 

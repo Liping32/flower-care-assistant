@@ -749,6 +749,254 @@ def update_reminder_config(user_id):
     db.commit()
     return jsonify({'success': True, 'water_remind_days': water_days, 'fertilize_remind_days': fertilize_days, 'repot_remind_days': repot_days})
 
+# ---------- Backup & Restore ----------
+@app.route('/api/user/<int:user_id>/backup', methods=['POST'])
+def backup_user_data(user_id):
+    """备份用户数据，返回 JSON 数据 + 照片 base64"""
+    data = request.json or {}
+    include_flowers = data.get('include_flowers', True)
+    include_plants = data.get('include_plants', True)
+    include_care_logs = data.get('include_care_logs', True)
+    include_photos = data.get('include_photos', True)
+
+    db = get_db()
+    user = db.execute('SELECT id, username FROM users WHERE id=?', (user_id,)).fetchone()
+    if not user:
+        return jsonify({'error': '用户不存在'}), 404
+
+    backup = {
+        'version': 1,
+        'exported_at': datetime.now().strftime('%Y-%m-%dT%H:%M:%S'),
+        'username': user['username'],
+        'data': {}
+    }
+
+    # 花卉
+    if include_flowers:
+        flowers = db.execute('SELECT flower_id, added_at, last_water, last_fertilize, last_repot FROM user_flowers WHERE user_id=?', (user_id,)).fetchall()
+        backup['data']['flowers'] = [dict(r) for r in flowers]
+
+        configs = db.execute('SELECT flower_id, visible, sort_order FROM user_flower_config WHERE user_id=?', (user_id,)).fetchall()
+        backup['data']['flower_config'] = [dict(r) for r in configs]
+
+        orders = db.execute('SELECT flower_order FROM user_flower_orders WHERE user_id=?', (user_id,)).fetchone()
+        backup['data']['flower_order'] = orders['flower_order'] if orders else '[]'
+
+    # 植株
+    if include_plants:
+        plants = db.execute('''SELECT flower_id, plant_name, custom_water_days, custom_fertilize_days,
+                                      custom_repot_days, created_at, photo, identify_result
+                               FROM my_plants WHERE user_id=?''', (user_id,)).fetchall()
+        backup['data']['plants'] = [dict(r) for r in plants]
+
+    # 养护记录
+    if include_care_logs:
+        logs = db.execute('''SELECT cl.flower_id, cl.action, cl.date, cl.plant_id,
+                                    mp.plant_name
+                             FROM care_logs cl
+                             LEFT JOIN my_plants mp ON cl.plant_id = mp.id
+                             WHERE cl.user_id=?''', (user_id,)).fetchall()
+        backup['data']['care_logs'] = [dict(r) for r in logs]
+
+    # 照片 base64
+    photos = {}
+    if include_photos and include_plants:
+        import base64
+        plants_with_photo = db.execute('SELECT id, photo FROM my_plants WHERE user_id=? AND photo IS NOT NULL AND photo != ""', (user_id,)).fetchall()
+        for p in plants_with_photo:
+            photo_path = p['photo']
+            if photo_path:
+                # 转换为实际文件路径
+                full_path = os.path.join(WORK_DIR, photo_path.lstrip('/'))
+                if os.path.exists(full_path):
+                    try:
+                        with open(full_path, 'rb') as f:
+                            photos[photo_path] = base64.b64encode(f.read()).decode('utf-8')
+                    except Exception:
+                        pass
+
+    # 统计
+    stats = {}
+    if include_flowers:
+        stats['flowers'] = len(backup['data'].get('flowers', []))
+    if include_plants:
+        stats['plants'] = len(backup['data'].get('plants', []))
+    if include_care_logs:
+        stats['care_logs'] = len(backup['data'].get('care_logs', []))
+    stats['photos'] = len(photos)
+
+    return jsonify({'backup': backup, 'photos': photos, 'stats': stats})
+
+@app.route('/api/user/<int:user_id>/restore', methods=['POST'])
+def restore_user_data(user_id):
+    """从备份数据恢复，支持选择性恢复（仅限本地使用）"""
+    # PA部署禁用恢复功能，防止误操作恢复到PA
+    if os.environ.get('PA_DISABLE_RESTORE') or os.path.exists(os.path.join(WORK_DIR, '.pa_env')):
+        return jsonify({'error': '恢复功能仅在本地环境可用'}), 403
+    data = request.json or {}
+    backup_data = data.get('backup_data', {})
+    include_flowers = data.get('include_flowers', True)
+    include_plants = data.get('include_plants', True)
+    include_care_logs = data.get('include_care_logs', True)
+    include_photos = data.get('include_photos', True)
+    photos = data.get('photos', {})
+
+    db = get_db()
+    user = db.execute('SELECT id, username, city FROM users WHERE id=?', (user_id,)).fetchone()
+    if not user:
+        return jsonify({'error': '用户不存在'}), 404
+
+    backup_inner = backup_data.get('data', {})
+    warnings = []
+    restored = {}
+
+    # 1. 恢复花卉
+    if include_flowers and 'flowers' in backup_inner:
+        # 先清除旧数据
+        db.execute('DELETE FROM user_flowers WHERE user_id=?', (user_id,))
+        db.execute('DELETE FROM user_flower_config WHERE user_id=?', (user_id,))
+        db.execute('DELETE FROM user_flower_orders WHERE user_id=?', (user_id,))
+
+        flower_count = 0
+        for f in backup_inner['flowers']:
+            # 检查 flower_knowledge 是否存在
+            fk = db.execute('SELECT 1 FROM flower_knowledge WHERE flower_id=?', (f['flower_id'],)).fetchone()
+            if not fk:
+                warnings.append(f'花卉 {f["flower_id"]} 不存在，已跳过')
+                continue
+            db.execute('''INSERT INTO user_flowers (user_id, flower_id, added_at, last_water, last_fertilize, last_repot)
+                          VALUES (?, ?, ?, ?, ?, ?)''',
+                       (user_id, f['flower_id'], f.get('added_at'), f.get('last_water'), f.get('last_fertilize'), f.get('last_repot')))
+            flower_count += 1
+
+        cfg_count = 0
+        for c in backup_inner.get('flower_config', []):
+            db.execute('''INSERT OR REPLACE INTO user_flower_config (user_id, flower_id, visible, sort_order)
+                          VALUES (?, ?, ?, ?)''',
+                       (user_id, c['flower_id'], c.get('visible', 1), c.get('sort_order', 0)))
+            cfg_count += 1
+
+        if 'flower_order' in backup_inner:
+            db.execute('INSERT OR REPLACE INTO user_flower_orders (user_id, flower_order) VALUES (?, ?)',
+                       (user_id, backup_inner['flower_order']))
+
+        restored['flowers'] = flower_count
+        db.commit()
+
+    # 2. 恢复植株
+    if include_plants and 'plants' in backup_inner:
+        # 先清除旧数据（级联删除 water_plans）
+        old_plants = db.execute('SELECT id FROM my_plants WHERE user_id=?', (user_id,)).fetchall()
+        for op in old_plants:
+            db.execute('DELETE FROM water_plans WHERE plant_id=?', (op['id'],))
+        db.execute('DELETE FROM my_plants WHERE user_id=?', (user_id,))
+        # 清除旧 care_logs（如果也选了恢复的话后面会重新插入，如果没选就清掉）
+        if include_care_logs:
+            db.execute('DELETE FROM care_logs WHERE user_id=?', (user_id,))
+
+        plant_count = 0
+        plant_id_map = {}  # backup plant_name+flower_id -> new id
+        photo_rename_map = {}  # old photo path -> new photo path
+        for p in backup_inner['plants']:
+            fk = db.execute('SELECT 1 FROM flower_knowledge WHERE flower_id=?', (p['flower_id'],)).fetchone()
+            if not fk:
+                continue
+            old_photo = p.get('photo', '')
+            cursor = db.execute('''INSERT INTO my_plants (user_id, flower_id, plant_name, custom_water_days,
+                                     custom_fertilize_days, custom_repot_days, created_at, photo, identify_result)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                                (user_id, p['flower_id'], p['plant_name'], p.get('custom_water_days'),
+                                 p.get('custom_fertilize_days'), p.get('custom_repot_days'),
+                                 p.get('created_at'), '', p.get('identify_result', '')))
+            new_id = cursor.lastrowid
+            plant_id_map[(p['flower_id'], p['plant_name'])] = new_id
+
+            # 根据新的user_id和plant_id重命名photo路径
+            new_photo = ''
+            if old_photo:
+                import uuid
+                old_ext = os.path.splitext(old_photo)[1] or '.jpg'
+                new_name = f"{user_id}_{new_id}_{uuid.uuid4().hex[:8]}{old_ext}"
+                new_photo = f'/plant_photos/{new_name}'
+                photo_rename_map[old_photo] = new_photo
+                db.execute('UPDATE my_plants SET photo=? WHERE id=?', (new_photo, new_id))
+
+            plant_count += 1
+
+            # 为每个植株生成养护计划
+            city = user['city'] if 'city' in user.keys() else ''
+            zone_id, _ = get_climate_zone(city) if city else ('warm_temp', CLIMATE_ZONES['warm_temp'])
+            for ct in ('water', 'fertilize', 'repot'):
+                _generate_care_plans(db, new_id, user_id, p['flower_id'], zone_id, care_type=ct, num_plans=5)
+
+        restored['plants'] = plant_count
+        db.commit()
+
+        # 将旧照片文件复制到新路径（基于新user_id和plant_id命名）
+        if photo_rename_map:
+            import shutil
+            for old_photo, new_photo in photo_rename_map.items():
+                old_full = os.path.join(WORK_DIR, old_photo.lstrip('/'))
+                new_full = os.path.join(WORK_DIR, new_photo.lstrip('/'))
+                if old_full != new_full:
+                    os.makedirs(os.path.dirname(new_full), exist_ok=True)
+                    if os.path.exists(old_full):
+                        try:
+                            shutil.copy2(old_full, new_full)
+                        except Exception:
+                            pass
+
+        # 3. 恢复养护记录
+        if include_care_logs and 'care_logs' in backup_inner:
+            # care_logs 已在步骤2中清除
+            log_count = 0
+            for lg in backup_inner['care_logs']:
+                plant_id = None
+                if lg.get('plant_name') and lg.get('flower_id'):
+                    key = (lg['flower_id'], lg['plant_name'])
+                    plant_id = plant_id_map.get(key)
+                db.execute('''INSERT INTO care_logs (user_id, flower_id, action, date, plant_id)
+                              VALUES (?, ?, ?, ?, ?)''',
+                           (user_id, lg['flower_id'], lg['action'], lg['date'], plant_id))
+                log_count += 1
+            restored['care_logs'] = log_count
+            db.commit()
+
+    # 4. 恢复照片
+    photo_count = 0
+    if include_photos and include_plants:
+        import base64
+        # 优先从ZIP内嵌照片恢复（前端传来）
+        if photos:
+            for path, b64data in photos.items():
+                # 使用重命名映射确定新路径
+                new_path = photo_rename_map.get(path, path)
+                full_path = os.path.join(WORK_DIR, new_path.lstrip('/'))
+                os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                try:
+                    with open(full_path, 'wb') as f:
+                        f.write(base64.b64decode(b64data))
+                    photo_count += 1
+                except Exception:
+                    warnings.append(f'照片 {path} 写入失败')
+        # 如果前端没传照片数据（如只选了植株没选照片），尝试从本地文件复制并重命名
+        elif photo_rename_map:
+            for old_photo, new_photo in photo_rename_map.items():
+                old_full = os.path.join(WORK_DIR, old_photo.lstrip('/'))
+                new_full = os.path.join(WORK_DIR, new_photo.lstrip('/'))
+                if os.path.exists(old_full) and old_full != new_full:
+                    os.makedirs(os.path.dirname(new_full), exist_ok=True)
+                    try:
+                        import shutil
+                        shutil.copy2(old_full, new_full)
+                        photo_count += 1
+                    except Exception:
+                        warnings.append(f'照片 {old_photo} 复制失败')
+        if photo_count > 0:
+            restored['photos'] = photo_count
+
+    return jsonify({'success': True, 'restored': restored, 'warnings': warnings})
+
 # ---------- Flower Knowledge (public) ----------
 @app.route('/api/flowers', methods=['GET'])
 def get_flowers():

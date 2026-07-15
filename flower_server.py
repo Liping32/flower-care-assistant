@@ -250,6 +250,11 @@ def init_db():
                                          (p['id'], 'repot')).fetchone()[0]
                 if repot_count == 0:
                     _generate_care_plans(db, p['id'], p['user_id'], p['flower_id'], zone_id, care_type='repot', num_plans=5)
+                # 检查是否已有浇水计划
+                water_count = db.execute('SELECT COUNT(*) FROM water_plans WHERE plant_id=? AND care_type=?',
+                                         (p['id'], 'water')).fetchone()[0]
+                if water_count == 0:
+                    _generate_care_plans(db, p['id'], p['user_id'], p['flower_id'], zone_id, care_type='water', num_plans=5)
 
             db.commit()
     except Exception:
@@ -1699,15 +1704,23 @@ def _generate_care_plans(db, plant_id, user_id, flower_id, zone_id, care_type='w
         if start_from:
             start_date = start_from
         else:
-            # 找该植株此类型已有的最近pending计划日期
-            existing = db.execute(
-                'SELECT MAX(plan_date) FROM water_plans WHERE plant_id=? AND care_type=?',
-                (plant_id, care_type)).fetchone()[0]
-            start_date = now
-            if existing:
-                last_plan = datetime.strptime(existing, '%Y-%m-%d')
-                if last_plan > start_date:
-                    start_date = last_plan
+            # 优先从care_logs获取上次实际操作日期作为基准
+            last_log = db.execute(
+                'SELECT date FROM care_logs WHERE plant_id=? AND action=? ORDER BY date DESC LIMIT 1',
+                (plant_id, care_type)).fetchone()
+            if last_log:
+                # 以实际操作日期为基准，下次计划 = 上次操作 + 间隔天数
+                start_date = datetime.strptime(last_log['date'][:10], '%Y-%m-%d')
+            else:
+                # 无操作记录时，查找已有的最近计划日期
+                existing = db.execute(
+                    'SELECT MAX(plan_date) FROM water_plans WHERE plant_id=? AND care_type=?',
+                    (plant_id, care_type)).fetchone()[0]
+                start_date = now
+                if existing:
+                    last_plan = datetime.strptime(existing, '%Y-%m-%d')
+                    if last_plan > start_date:
+                        start_date = last_plan
 
         current = start_date
         existing_pending = db.execute(
@@ -1741,15 +1754,23 @@ def _generate_care_plans(db, plant_id, user_id, flower_id, zone_id, care_type='w
     if start_from:
         start_date = start_from
     else:
-        # 找该植株此类型已有的最近pending计划日期
-        existing = db.execute(
-            'SELECT MAX(plan_date) FROM water_plans WHERE plant_id=? AND care_type=?',
-            (plant_id, care_type)).fetchone()[0]
-        start_date = now
-        if existing:
-            last_plan = datetime.strptime(existing, '%Y-%m-%d')
-            if last_plan > start_date:
-                start_date = last_plan
+        # 优先从care_logs获取上次实际操作日期作为基准
+        last_log = db.execute(
+            'SELECT date FROM care_logs WHERE plant_id=? AND action=? ORDER BY date DESC LIMIT 1',
+            (plant_id, care_type)).fetchone()
+        if last_log:
+            # 以实际操作日期为基准，下次计划 = 上次操作 + 间隔天数
+            start_date = datetime.strptime(last_log['date'][:10], '%Y-%m-%d')
+        else:
+            # 无操作记录时，查找已有的最近计划日期
+            existing = db.execute(
+                'SELECT MAX(plan_date) FROM water_plans WHERE plant_id=? AND care_type=?',
+                (plant_id, care_type)).fetchone()[0]
+            start_date = now
+            if existing:
+                last_plan = datetime.strptime(existing, '%Y-%m-%d')
+                if last_plan > start_date:
+                    start_date = last_plan
 
     current = start_date
     existing_pending = db.execute(
@@ -1943,13 +1964,12 @@ def regenerate_water_plans(user_id, plant_id):
     city = user['city'] if user else ''
     zone_id, _ = get_climate_zone(city) if city else ('warm_temp', CLIMATE_ZONES['warm_temp'])
 
-    now = datetime.now()
-
     for ct in care_types:
         # Delete pending plans of this type only (keep done/skipped as history)
         db.execute('DELETE FROM water_plans WHERE plant_id=? AND care_type=? AND status=?',
                    (plant_id, ct, 'pending'))
-        _generate_care_plans(db, plant_id, user_id, plant['flower_id'], zone_id, care_type=ct, num_plans=5, start_from=now)
+        # 不传 start_from，让 _generate_care_plans 从 care_logs 中上次实际操作日期开始计算
+        _generate_care_plans(db, plant_id, user_id, plant['flower_id'], zone_id, care_type=ct, num_plans=5)
 
     db.commit()
     return jsonify({'success': True})
